@@ -45,7 +45,17 @@ export function HotelSearchPanel({
       );
       if (!res.ok) throw new Error("検索に失敗しました");
       const data = await res.json();
-      const hotels = data.hotels || [];
+
+      // APIレスポンスの構造を変換: {hotelBasicInfo, hotelRatingInfo} -> HotelBasicInfo
+      const hotels = (data.hotels || []).map((hotelObj: any) => {
+        const basicInfo = hotelObj.hotelBasicInfo;
+        const ratingInfo = hotelObj.hotelRatingInfo;
+        return {
+          ...basicInfo,
+          hotelRatingInfo: ratingInfo
+        };
+      }).filter((hotel: any) => hotel && hotel.hotelNo);
+
       setResults(hotels);
       onSearchComplete?.(hotels);
     } catch (err) {
