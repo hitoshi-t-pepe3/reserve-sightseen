@@ -20,3 +20,6 @@ out/
 # Env
 .env
 .env*.local
+# Local env files (secrets)
+backend/env-vars.yaml
+env-vars.yaml
