@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     # Claude API
     anthropic_api_key: str = ""
 
+    # Gemini API (legacy, API-key based; unused when Vertex AI is configured)
+    gemini_api_key: str = ""
+
+    # Vertex AI (GCP project-based Gemini access)
+    gcp_project_id: str = ""
+    gcp_location: str = "asia-northeast1"
+
     # App
     app_name: str = "ReserveSightseeing"
     debug: bool = False

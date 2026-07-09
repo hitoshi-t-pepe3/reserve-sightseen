@@ -1,57 +1,54 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
-import json
+from app.services.gemini_chat import chat_with_gemini, stream_chat_with_gemini
+from fastapi.responses import StreamingResponse
 
-router = APIRouter()
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-class Message(BaseModel):
-    id: str
-    role: str
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
     content: str
-    timestamp: datetime
-    isStreaming: Optional[bool] = False
 
 
 class ChatRequest(BaseModel):
     message: str
-    conversationHistory: List[Message] = Field(default_factory=list)
+    conversation_history: Optional[List[dict]] = []
+    system_prompt: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
-    message: str
-    toolsUsed: List[str] = Field(default_factory=list)
+    response: str
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+@router.post("", response_model=ChatResponse)
+async def chat(request: ChatRequest):
     """
-    チャットエンドポイント（仮実装）。
-    将来的には Claude API Tool Use でエージェントとして動作する。
+    Chat with Gemini model.
     """
-    # 仮のレスポンス: ユーザーメッセージをオウム返し + 簡単なガイド
-    user_msg = request.message
-    history_len = len(request.conversationHistory)
-
-    if history_len <= 1:  # Welcome message only
-        response = (
-            "ありがとうございます。旅行のご希望を詳しく教えてください。\n\n"
-            "例えば：\n"
-            "• 行き先（例：京都、沖縄、北海道など）\n"
-            "• 日数（例：2泊3日、週末だけ など）\n"
-            "• 予算（例：1人5万円以内、家族で20万円など）\n"
-            "• 好み（温泉、観光、グルメ、自然、アクティビティなど）\n"
-            "• 同行者（ひとり旅、カップル、家族、友人グループなど）\n\n"
-            "これらをお聞かせいただければ、ぴったりのプランを提案します！"
+    try:
+        response = await chat_with_gemini(
+            user_message=request.message,
+            conversation_history=request.conversation_history,
+            system_prompt=request.system_prompt
         )
-    else:
-        response = (
-            f"「{user_msg}」ですね。承知しました。\n\n"
-            "詳細な条件をもう少しお聞かせいただけますか？\n"
-            "具体的なプランを作成するために、上記の項目（行き先、日数、予算、好み、同行者）を"
-            "できるだけ教えてください。"
-        )
+        return ChatResponse(response=response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return ChatResponse(message=response, toolsUsed=[])
+
+@router.post("/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Chat with Gemini model (streaming response).
+    """
+    async def generate():
+        async for chunk in stream_chat_with_gemini(
+            user_message=request.message,
+            conversation_history=request.conversation_history,
+            system_prompt=request.system_prompt
+        ):
+            yield f"data: {chunk}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

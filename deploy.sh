@@ -130,7 +130,7 @@ gcloud run deploy "$BACKEND_SERVICE" \
   --cpu=1 \
   --min-instances=0 \
   --max-instances=10 \
-  --set-env-vars="CORS_ORIGINS=http://localhost:3000" \
+  --set-env-vars="^##^CORS_ORIGINS=http://localhost:3000##GCP_PROJECT_ID=${PROJECT_ID}##GCP_LOCATION=us-central1" \
   --update-secrets=RAKUTEN_APPLICATION_ID=RAKUTEN_APPLICATION_ID:latest,RAKUTEN_AFFILIATE_ID=RAKUTEN_AFFILIATE_ID:latest,RAKUTEN_ACCESS_KEY=RAKUTEN_ACCESS_KEY:latest,GOOGLE_PLACES_API_KEY=GOOGLE_PLACES_API_KEY:latest \
   --project="$PROJECT_ID"
 

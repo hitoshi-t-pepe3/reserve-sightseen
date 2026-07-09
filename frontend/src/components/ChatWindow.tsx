@@ -41,12 +41,19 @@ export function ChatWindow() {
     setError(null);
 
     try {
+      // 会話履歴を Gemini バックエンド形式に変換
+      const conversationHistory = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content }));
+
       const response = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: content,
-          conversationHistory: messages,
+          conversation_history: conversationHistory,
+          system_prompt:
+            "あなたは旅行プランを提案する親切なアシスタントです。ユーザーの希望（行き先、日数、予算、好み、同行者）を聞きながら、日本国内の観光スポット、グルメ、宿泊施設を含む具体的な旅行プランを提案してください。",
         }),
       });
 
@@ -54,50 +61,17 @@ export function ChatWindow() {
         throw new Error(`API Error: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      let assistantMessage: Message = {
+      const data = await response.json();
+      const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
-        content: "",
+        content: data.response || "応答を取得できませんでした。",
         timestamp: new Date(),
-        isStreaming: true,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          try {
-            const data = JSON.parse(chunk);
-            if (data.content) {
-              assistantMessage = {
-                ...assistantMessage,
-                content: assistantMessage.content + data.content,
-              };
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantMessage.id ? assistantMessage : m))
-              );
-            }
-          } catch {
-            // Ignore parse errors for partial chunks
-          }
-        }
-      }
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantMessage.id ? { ...assistantMessage, isStreaming: false } : m
-        )
-      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "送信に失敗しました");
-      setMessages((prev) => prev.filter((m) => m.role !== "assistant" || !m.isStreaming));
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +99,7 @@ export function ChatWindow() {
         {
           id: generateId(),
           role: "assistant",
-          content: `「${hotel.hotelName}」\n${hotel.address1}${hotel.address2}\n最寄り: ${hotel.nearestStation || "－"}\n最安料金: ${hotel.hotelMinCharge ? "¥" + hotel.hotelMinCharge.toLocaleString() + "/泊〜" : "料金未定"}\n\n[詳細・予約はこちら](${hotel.hotelInformationUrl})`,
+          content: `「${hotel.hotelName}」\n${hotel.hotelSpecial || ""}\n${hotel.address1 || ""}${hotel.address2 || ""}\n最寄り: ${hotel.nearestStation || "－"}\n最安料金: ${hotel.hotelMinCharge ? "¥" + hotel.hotelMinCharge.toLocaleString() + "/泊〜" : "料金未定"}\n\n[詳細・予約はこちら](${hotel.planListUrl || hotel.hotelInformationUrl})`,
           timestamp: new Date(),
         },
       ]);
