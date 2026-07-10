@@ -18,9 +18,20 @@ export function HotelCard({
   checkout,
 }: HotelCardProps) {
   const imageUrl = hotel.hotelThumbnailUrl || hotel.hotelImageUrl;
-  const minCharge = hotel.hotelMinCharge ? `¥${hotel.hotelMinCharge.toLocaleString()}/泊〜` : '料金未定';
   const rating = hotel.reviewAverage ? hotel.reviewAverage.toFixed(1) : '－';
   const reviewCount = hotel.reviewCount ? `(${hotel.reviewCount}件)` : '';
+
+  // hotelMinChargeRestrictedOnly: 年齢/記念日限定等の特典プランしか空室がなく、
+  // 一般ユーザー向けの実勢価格として提示できない場合。
+  // hotelMinChargeUnavailable: 空室検索で実勢価格を検証できず、施設検索APIの理論値
+  // （空室0件時に極端に低い値が返ることがある）をそのまま使わざるを得ない場合。
+  // どちらも金額をそのまま出すと誤解を招くため「要確認」表記に切り替える。
+  const priceUnreliable = hotel.hotelMinChargeRestrictedOnly || hotel.hotelMinChargeUnavailable;
+  const minCharge = priceUnreliable
+    ? '料金は日程により変動（要確認）'
+    : hotel.hotelMinCharge
+      ? `¥${hotel.hotelMinCharge.toLocaleString()}/泊〜`
+      : '料金未定';
 
   return (
     <div
@@ -59,7 +70,15 @@ export function HotelCard({
             </svg>
             {rating} {reviewCount}
           </span>
-          <span className="text-red-600 font-bold text-lg">{minCharge}</span>
+          <span
+            className={
+              priceUnreliable
+                ? "text-gray-500 text-sm"
+                : "text-red-600 font-bold text-lg"
+            }
+          >
+            {minCharge}
+          </span>
         </div>
 
         {/* Location */}

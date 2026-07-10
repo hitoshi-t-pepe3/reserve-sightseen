@@ -1,7 +1,21 @@
+import asyncio
+import re
+from datetime import date, timedelta
 from typing import Optional
 from pydantic import BaseModel, Field
 import httpx
 from app.config import settings
+
+# 誰でも予約できるとは限らない「条件付き限定プラン」を示す語。
+# 例: 「70歳以上+今年の干支+当日誕生日」がすべて該当する場合のみ適用される特典プラン。
+# こうしたプランの金額を一般的な「最安料金」として表示すると実勢とかけ離れる。
+_RESTRICTED_PLAN_PATTERN = re.compile(
+    "|".join([
+        "歳以上", "歳未満", "干支", "誕生日", "記念日", "夫婦の日",
+        "シニア", "学生限定", "女性限定", "カップル限定", "会員限定",
+        "抽選", "組限定", "名様限定", "先着", "本日限定",
+    ])
+)
 
 
 class RakutenHotelSearchParams(BaseModel):
@@ -248,7 +262,8 @@ class RakutenTravelTool:
         return result
 
     async def search_by_area(self, area_name: str, checkin: Optional[str] = None, checkout: Optional[str] = None,
-                             adults: int = 2, rooms: int = 1, hits: int = 20) -> list:
+                             adults: int = 2, rooms: int = 1, hits: int = 20,
+                             use_realistic_price: bool = True, realistic_price_limit: int = 10) -> list:
         """エリア名で検索（主要都市の緯度経度を内部マップから取得）"""
         area_coords = {
             "京都": (35.0116, 135.7681),
@@ -269,13 +284,21 @@ class RakutenTravelTool:
         return await self.search_by_location(
             lat=coords[0], lng=coords[1], radius=3.0,
             checkin=checkin, checkout=checkout,
-            adults=adults, rooms=rooms, hits=hits
+            adults=adults, rooms=rooms, hits=hits,
+            use_realistic_price=use_realistic_price,
+            realistic_price_limit=realistic_price_limit,
         )
 
     async def search_by_location(self, lat: float, lng: float, radius: float = 3.0,
                                   checkin: Optional[str] = None, checkout: Optional[str] = None,
-                                  adults: int = 2, rooms: int = 1, hits: int = 20) -> list:
-        """緯度経度で検索（世界測地系）"""
+                                  adults: int = 2, rooms: int = 1, hits: int = 20,
+                                  use_realistic_price: bool = True,
+                                  realistic_price_limit: int = 10) -> list:
+        """緯度経度で検索（世界測地系）
+
+        use_realistic_price=True の場合、上位 realistic_price_limit 件について
+        空室検索APIから実勢最安値（限定特典プラン除く）を取得し hotelMinCharge を差し替える。
+        """
         params = RakutenHotelSearchParams(
             latitude=lat,
             longitude=lng,
@@ -289,7 +312,15 @@ class RakutenTravelTool:
             sort="+roomCharge",
         )
         result = await self.search_hotels(params)
-        return self._parse_hotels(result)
+        hotels = self._parse_hotels(result)
+
+        if use_realistic_price and hotels:
+            target = hotels[:realistic_price_limit]
+            await self.enrich_with_realistic_prices(
+                target, checkin=checkin, checkout=checkout, adults=max(adults, 1), rooms=rooms
+            )
+
+        return hotels
 
     async def get_vacancy(self, hotel_no: int, checkin: str, checkout: str,
                           adults: int = 2, rooms: int = 1) -> list:
@@ -320,6 +351,140 @@ class RakutenTravelTool:
                         if isinstance(hotel_data, dict) and "roomInfo" in hotel_data:
                             return hotel_data.get("roomInfo", [])
         return []
+
+    @staticmethod
+    def _group_plans(room_info: list) -> list[dict]:
+        """roomInfo のフラットな配列を、プラン単位 {plan: roomBasicInfo, charges: [dailyCharge,...]} にグループ化する。
+        構造: [{roomBasicInfo:...}, {dailyCharge:...}, {roomBasicInfo:...}, {dailyCharge:...}, ...]
+        直前の roomBasicInfo に、後続の dailyCharge 群が紐づく。
+        """
+        plans: list[dict] = []
+        current: Optional[dict] = None
+        for elem in room_info:
+            if not isinstance(elem, dict):
+                continue
+            if "roomBasicInfo" in elem:
+                current = {"plan": elem["roomBasicInfo"], "charges": []}
+                plans.append(current)
+            elif "dailyCharge" in elem and current is not None:
+                current["charges"].append(elem["dailyCharge"])
+        return plans
+
+    @classmethod
+    def _is_restricted_plan(cls, plan_name: str) -> bool:
+        """年齢・記念日・抽選等、一般ユーザーが誰でも予約できるわけではない限定プランか判定"""
+        if not plan_name:
+            return False
+        return bool(_RESTRICTED_PLAN_PATTERN.search(plan_name))
+
+    async def get_realistic_min_charge(self, hotel_no: int, checkin: str, checkout: str,
+                                        adults: int = 1, rooms: int = 1) -> Optional[dict]:
+        """一般条件（限定特典プランを除く）での実勢最安値を取得する。
+
+        施設検索APIが返す hotelMinCharge は「年齢70歳以上+当日誕生日」等の
+        極めて限定的な条件を満たす場合のみ有効な特典プランの金額を含むことがあり、
+        一般ユーザー向けの「最安料金」としては実態と乖離する。
+        そのため空室検索APIから実際のプラン一覧を取得し、限定条件プランを除外した
+        上で最安値を再計算する。
+
+        一般プランが1件もなく限定プランしか空室が無い場合、その金額を「最安料金」として
+        差し替えるのは誤解を招くため差し替えを行わない（呼び出し側で hotelMinCharge は
+        元の値を維持し、only_restricted_available=True を見て注記を出す）。
+
+        Returns:
+            {"charge": Optional[int], "plan_name": str, "restricted_excluded": bool,
+             "only_restricted_available": bool} または該当プランなしなら None
+        """
+        room_info = await self.get_vacancy(hotel_no, checkin, checkout, adults, rooms)
+        plans = self._group_plans(room_info)
+        if not plans:
+            return None
+
+        def total_charge(p: dict) -> Optional[int]:
+            totals = [c.get("total") for c in p["charges"] if isinstance(c.get("total"), (int, float))]
+            return sum(totals) if totals else None
+
+        general_plans = [p for p in plans if not self._is_restricted_plan(p["plan"].get("planName", ""))]
+        restricted_excluded = len(general_plans) < len(plans)
+
+        if not general_plans:
+            # 一般プランが存在せず、限定プランしか取得できない → 実勢最安値としては採用しない
+            return {
+                "charge": None,
+                "plan_name": plans[0]["plan"].get("planName") if plans else None,
+                "restricted_excluded": False,
+                "only_restricted_available": True,
+            }
+
+        priced = [(total_charge(p), p) for p in general_plans]
+        priced = [(t, p) for t, p in priced if t is not None]
+        if not priced:
+            return None
+
+        min_charge, min_plan = min(priced, key=lambda x: x[0])
+        return {
+            "charge": min_charge,
+            "plan_name": min_plan["plan"].get("planName"),
+            "restricted_excluded": restricted_excluded,
+            "only_restricted_available": False,
+        }
+
+    async def enrich_with_realistic_prices(self, hotels: list[dict], checkin: Optional[str] = None,
+                                            checkout: Optional[str] = None, adults: int = 1,
+                                            rooms: int = 1, concurrency: int = 2) -> list[dict]:
+        """ホテル一覧の hotelMinCharge を、一般条件での実勢最安値に差し替える。
+
+        checkin/checkout 未指定の場合は「明日〜明後日」を仮の宿泊日として使う
+        （施設検索APIの hotelMinCharge も日付指定なしだと同様の仮定で算出されるため）。
+
+        楽天トラベル空室検索APIはレート制限が厳しいため、並列数は低めに抑え、
+        429 発生時は簡易リトライする。
+        """
+        if not checkin or not checkout:
+            tomorrow = date.today() + timedelta(days=1)
+            checkin = checkin or tomorrow.isoformat()
+            checkout = checkout or (tomorrow + timedelta(days=1)).isoformat()
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def fetch_one(hotel: dict) -> None:
+            # hotel は _parse_hotels() の出力形式: {"hotelBasicInfo": {...}, "hotelRatingInfo": {...}}
+            basic_info = hotel.get("hotelBasicInfo")
+            if not isinstance(basic_info, dict):
+                return
+            hotel_no = basic_info.get("hotelNo")
+            if not hotel_no:
+                return
+            realistic = None
+            async with semaphore:
+                for attempt in range(3):
+                    try:
+                        realistic = await self.get_realistic_min_charge(
+                            hotel_no, checkin, checkout, adults=adults, rooms=rooms
+                        )
+                        break
+                    except Exception as e:
+                        if "429" in str(e) and attempt < 2:
+                            await asyncio.sleep(1.5 * (attempt + 1))
+                            continue
+                        realistic = None
+                        break
+
+            if realistic is None:
+                # 空室が取れない場合、施設検索APIの値は参考値である旨を明示
+                basic_info["hotelMinChargeUnavailable"] = True
+            elif realistic["only_restricted_available"]:
+                # 限定特典プランしか空室がない → 施設検索APIの値(元のhotelMinCharge)を
+                # そのまま「限定条件プラン」として明示する。一般ユーザー向け金額としては提示しない。
+                basic_info["hotelMinChargeRestrictedOnly"] = True
+                basic_info["hotelMinChargePlanName"] = realistic["plan_name"]
+            else:
+                basic_info["hotelMinCharge"] = realistic["charge"]
+                basic_info["hotelMinChargePlanName"] = realistic["plan_name"]
+                basic_info["hotelMinChargeRestrictedExcluded"] = realistic["restricted_excluded"]
+
+        await asyncio.gather(*(fetch_one(h) for h in hotels))
+        return hotels
 
     async def close(self):
         await self.client.aclose()

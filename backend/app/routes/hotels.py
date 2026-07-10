@@ -110,12 +110,18 @@ async def search_by_area(
     adults: int = Query(2, description="大人人数"),
     rooms: int = Query(1, description="部屋数"),
     hits: int = Query(20, description="取得件数"),
+    use_realistic_price: bool = Query(
+        True, description="施設検索APIの理論上最安値ではなく、空室検索APIから限定特典プランを除いた実勢最安値を取得する"
+    ),
+    realistic_price_limit: int = Query(10, description="実勢最安値を取得する上位件数（空室API呼び出し回数に直結するため上限あり）", le=20),
 ):
     """エリア名でホテル検索（簡易版）"""
     try:
         hotels = await rakuten_travel_tool.search_by_area(
             area_name=area, checkin=checkin, checkout=checkout,
-            adults=adults, rooms=rooms, hits=hits
+            adults=adults, rooms=rooms, hits=hits,
+            use_realistic_price=use_realistic_price,
+            realistic_price_limit=realistic_price_limit,
         )
         return {"hotels": hotels, "count": len(hotels)}
     except Exception as e:
@@ -132,12 +138,18 @@ async def search_by_location(
     adults: int = Query(2, description="大人人数"),
     rooms: int = Query(1, description="部屋数"),
     hits: int = Query(20, description="取得件数"),
+    use_realistic_price: bool = Query(
+        True, description="施設検索APIの理論上最安値ではなく、空室検索APIから限定特典プランを除いた実勢最安値を取得する"
+    ),
+    realistic_price_limit: int = Query(10, description="実勢最安値を取得する上位件数（空室API呼び出し回数に直結するため上限あり）", le=20),
 ):
     """緯度経度でホテル検索"""
     try:
         hotels = await rakuten_travel_tool.search_by_location(
             lat=lat, lng=lng, radius=radius, checkin=checkin, checkout=checkout,
-            adults=adults, rooms=rooms, hits=hits
+            adults=adults, rooms=rooms, hits=hits,
+            use_realistic_price=use_realistic_price,
+            realistic_price_limit=realistic_price_limit,
         )
         return {"hotels": hotels, "count": len(hotels)}
     except Exception as e:

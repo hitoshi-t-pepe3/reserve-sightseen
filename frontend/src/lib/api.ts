@@ -18,6 +18,13 @@ export interface HotelBasicInfo {
   nearestStation?: string;
   access?: string;
   parkingInformation?: string;
+  // 実勢最安値（限定特典プラン除く）の付随情報。バックエンドで空室検索APIから算出される。
+  hotelMinChargePlanName?: string;
+  hotelMinChargeRestrictedExcluded?: boolean;
+  // true の場合、空室として取得できたのが年齢/記念日限定等の特典プランのみで
+  // hotelMinCharge は一般ユーザー向けの実勢価格ではないことを示す。
+  hotelMinChargeRestrictedOnly?: boolean;
+  hotelMinChargeUnavailable?: boolean;
 }
 
 export interface HotelRatingInfo {
