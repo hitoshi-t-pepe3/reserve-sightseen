@@ -7,44 +7,73 @@ interface MessageBubbleProps {
   message: Message;
 }
 
-// [表示テキスト](URL) 形式の Markdown リンクのみを検出してクリック可能な <a> に変換する。
-// 本格的な Markdown レンダラーは不要な用途（ホテル詳細メッセージの1リンクのみ等）のため、
-// react-markdown 等の依存追加は避け、正規表現ベースの軽量パーサーで対応する。
-const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+// Gemini の応答に含まれる最小限の Markdown（リンク・太字・見出し・箇条書き）だけを
+// 正規表現で描画する。react-markdown 等の依存追加は避ける方針。
+const INLINE_PATTERN = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 
-function renderMessageContent(content: string) {
+function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let key = 0;
 
-  MARKDOWN_LINK_PATTERN.lastIndex = 0;
-  while ((match = MARKDOWN_LINK_PATTERN.exec(content)) !== null) {
-    const [fullMatch, linkText, url] = match;
+  INLINE_PATTERN.lastIndex = 0;
+  while ((match = INLINE_PATTERN.exec(text)) !== null) {
+    const [fullMatch, boldText, linkText, url] = match;
     if (match.index > lastIndex) {
       nodes.push(
-        <Fragment key={key++}>{content.slice(lastIndex, match.index)}</Fragment>
+        <Fragment key={key++}>{text.slice(lastIndex, match.index)}</Fragment>
       );
     }
-    nodes.push(
-      <a
-        key={key++}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline text-blue-600 hover:text-blue-800 break-all"
-      >
-        {linkText}
-      </a>
-    );
+    if (boldText !== undefined) {
+      nodes.push(<strong key={key++}>{boldText}</strong>);
+    } else {
+      nodes.push(
+        <a
+          key={key++}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline text-blue-600 hover:text-blue-800 break-all"
+        >
+          {linkText}
+        </a>
+      );
+    }
     lastIndex = match.index + fullMatch.length;
   }
 
-  if (lastIndex < content.length) {
-    nodes.push(<Fragment key={key++}>{content.slice(lastIndex)}</Fragment>);
+  if (lastIndex < text.length) {
+    nodes.push(<Fragment key={key++}>{text.slice(lastIndex)}</Fragment>);
   }
 
   return nodes;
+}
+
+function renderMessageContent(content: string) {
+  return content.split("\n").map((line, i) => {
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) {
+      return (
+        <span key={i} className="block font-bold mt-2 mb-1">
+          {renderInline(heading[1])}
+        </span>
+      );
+    }
+    const bullet = line.match(/^(\s*)[*-]\s+(.*)$/);
+    if (bullet) {
+      return (
+        <span key={i} className="block">
+          {bullet[1]}• {renderInline(bullet[2])}
+        </span>
+      );
+    }
+    return (
+      <span key={i} className="block min-h-[1.25em]">
+        {renderInline(line)}
+      </span>
+    );
+  });
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {

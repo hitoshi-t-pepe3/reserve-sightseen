@@ -114,6 +114,70 @@ export async function searchHotelsByLocation(
   return res.json();
 }
 
+export interface SearchContext {
+  area?: string;
+  checkin?: string;
+  checkout?: string;
+  adults?: number;
+}
+
+export interface ChatApiResponse {
+  response: string;
+  hotels: HotelSearchResult[];
+  search_context?: SearchContext | null;
+}
+
+export async function sendChatMessage(
+  message: string,
+  conversationHistory: { role: string; content: string }[]
+): Promise<ChatApiResponse> {
+  const res = await fetch(`${API_BASE}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      conversation_history: conversationHistory,
+    }),
+  });
+  if (!res.ok) throw new Error(`API Error: ${res.status}`);
+  return res.json();
+}
+
+// 楽天トラベルの予約ページURLに宿泊日・人数をプリセットする。
+// planListUrl はアフィリエイトリンク（?pc=<エンコード済み実URL>）形式で、
+// pc 内の f_* パラメータはリダイレクト先のプラン一覧ページまで引き継がれる（確認済み）。
+export function buildReserveUrl(
+  planListUrl: string | undefined,
+  checkin?: string,
+  checkout?: string,
+  adults: number = 2,
+  rooms: number = 1
+): string | undefined {
+  if (!planListUrl) return undefined;
+  if (!checkin || !checkout) return planListUrl;
+
+  const [y1, m1, d1] = checkin.split('-').map(Number);
+  const [y2, m2, d2] = checkout.split('-').map(Number);
+  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return planListUrl;
+
+  const extra =
+    `&f_nen1=${y1}&f_tuki1=${m1}&f_hi1=${d1}` +
+    `&f_nen2=${y2}&f_tuki2=${m2}&f_hi2=${d2}` +
+    `&f_otona_su=${adults}&f_heya_su=${rooms}`;
+
+  try {
+    const url = new URL(planListUrl);
+    const pc = url.searchParams.get('pc');
+    if (pc) {
+      url.searchParams.set('pc', pc + extra);
+      return url.toString();
+    }
+    return planListUrl + (planListUrl.includes('?') ? extra : `?${extra.slice(1)}`);
+  } catch {
+    return planListUrl;
+  }
+}
+
 export async function getHotelVacancy(
   hotelNo: number,
   checkin: string,

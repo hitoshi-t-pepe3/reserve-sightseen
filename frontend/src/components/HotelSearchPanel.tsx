@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { HotelBasicInfo } from "@/lib/api";
+import { HotelBasicInfo, searchHotelsByArea, buildReserveUrl } from "@/lib/api";
 import { HotelCard } from "./HotelCard";
 
 interface HotelSearchPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  area?: string;
   checkin?: string;
   checkout?: string;
   adults?: number;
@@ -17,13 +18,17 @@ interface HotelSearchPanelProps {
 export function HotelSearchPanel({
   isOpen,
   onClose,
-  checkin,
-  checkout,
-  adults = 2,
+  area,
+  checkin: initialCheckin,
+  checkout: initialCheckout,
+  adults: initialAdults = 2,
   rooms = 1,
   onSearchComplete,
 }: HotelSearchPanelProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(area ?? "");
+  const [checkin, setCheckin] = useState(initialCheckin ?? "");
+  const [checkout, setCheckout] = useState(initialCheckout ?? "");
+  const [adults, setAdults] = useState(initialAdults);
   const [results, setResults] = useState<HotelBasicInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,23 +43,19 @@ export function HotelSearchPanel({
     setError(null);
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE || "https://faction-scavenger-late.ngrok-free.dev"}/api/hotels/search-area?area=${encodeURIComponent(
-          query
-        )}&adults=${adults}&rooms=${rooms}&hits=20`
+      const data = await searchHotelsByArea(
+        query.trim(),
+        checkin || undefined,
+        checkout || undefined,
+        adults,
+        rooms,
+        20
       );
-      if (!res.ok) throw new Error("検索に失敗しました");
-      const data = await res.json();
 
       // APIレスポンスの構造を変換: {hotelBasicInfo, hotelRatingInfo} -> HotelBasicInfo
-      const hotels = (data.hotels || []).map((hotelObj: any) => {
-        const basicInfo = hotelObj.hotelBasicInfo;
-        const ratingInfo = hotelObj.hotelRatingInfo;
-        return {
-          ...basicInfo,
-          hotelRatingInfo: ratingInfo
-        };
-      }).filter((hotel: any) => hotel && hotel.hotelNo);
+      const hotels = (data.hotels || [])
+        .map((h) => h.hotelBasicInfo)
+        .filter((hotel): hotel is HotelBasicInfo => !!hotel && !!hotel.hotelNo);
 
       setResults(hotels);
       onSearchComplete?.(hotels);
@@ -81,7 +82,7 @@ export function HotelSearchPanel({
       </div>
 
       {/* Search Form */}
-      <form onSubmit={handleSearch} className="p-4 border-b border-gray-100">
+      <form onSubmit={handleSearch} className="p-4 border-b border-gray-100 space-y-3">
         <div className="flex gap-2">
           <input
             type="text"
@@ -98,7 +99,39 @@ export function HotelSearchPanel({
             {loading ? "検索中..." : "検索"}
           </button>
         </div>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="flex flex-wrap gap-2 items-center text-sm">
+          <label className="flex items-center gap-1 text-gray-600">
+            チェックイン
+            <input
+              type="date"
+              value={checkin}
+              onChange={(e) => setCheckin(e.target.value)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-gray-600">
+            チェックアウト
+            <input
+              type="date"
+              value={checkout}
+              onChange={(e) => setCheckout(e.target.value)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-gray-600">
+            大人
+            <select
+              value={adults}
+              onChange={(e) => setAdults(Number(e.target.value))}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg"
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n}名</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
       </form>
 
       {/* Results */}
@@ -117,9 +150,7 @@ export function HotelSearchPanel({
               <HotelCard
                 key={hotel.hotelNo}
                 hotel={hotel}
-                showVacancyButton={!!(checkin && checkout)}
-                checkin={checkin}
-                checkout={checkout}
+                reserveUrl={buildReserveUrl(hotel.planListUrl, checkin || undefined, checkout || undefined, adults, rooms)}
                 onSelect={(h) => {
                   // 親に選択を通知するためカスタムイベント発火
                   window.dispatchEvent(

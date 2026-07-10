@@ -1,32 +1,30 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Message, MessageRole } from "@/types/chat";
+import { useState, useEffect, useCallback } from "react";
+import { Message } from "@/types/chat";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { HotelSearchPanel } from "./HotelSearchPanel";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://faction-scavenger-late.ngrok-free.dev";
+import { sendChatMessage, HotelBasicInfo, SearchContext } from "@/lib/api";
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
+
+// 初回に表示する入力例。「行き先・日付・人数」が揃うとプラン提案まで一気に進むことを示す。
+const SUGGESTIONS = [
+  "7月25日から京都に1泊、大人2人。歴史とグルメを楽しみたい",
+  "8月の土日に沖縄へ2泊、大人2人。ビーチでのんびりしたい",
+  "来週末に札幌へ1泊、ひとり旅。グルメ中心がいい",
+];
 
 export function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHotelSearch, setShowHotelSearch] = useState(false);
-  const [searchContext, setSearchContext] = useState<{ checkin?: string; checkout?: string }>({});
-
-  // 日付をメッセージから抽出
-  const extractDates = (text: string) => {
-    const checkinMatch = text.match(/(\d{4}-\d{2}-\d{2})/g);
-    if (checkinMatch && checkinMatch.length >= 2) {
-      return { checkin: checkinMatch[0], checkout: checkinMatch[1] };
-    }
-    return { checkin: "2026-07-15", checkout: "2026-07-16" }; // デフォルト
-  };
+  // 直近のチャット検索条件。手動ホテル検索パネルの初期値・予約URLに引き継ぐ。
+  const [searchContext, setSearchContext] = useState<SearchContext>({});
 
   const sendMessage = useCallback(async (content: string) => {
     const userMessage: Message = {
@@ -41,32 +39,28 @@ export function ChatWindow() {
     setError(null);
 
     try {
-      // 会話履歴を Gemini バックエンド形式に変換
       const conversationHistory = messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const response = await fetch(`${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: content,
-          conversation_history: conversationHistory,
-          system_prompt:
-            "あなたは旅行プランを提案する親切なアシスタントです。ユーザーの希望（行き先、日数、予算、好み、同行者）を聞きながら、日本国内の観光スポット、グルメ、宿泊施設を含む具体的な旅行プランを提案してください。",
-        }),
-      });
+      const data = await sendChatMessage(content, conversationHistory);
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+      // API のホテル構造 {hotelBasicInfo, hotelRatingInfo} をカード用にフラット化
+      const hotels: HotelBasicInfo[] = (data.hotels || [])
+        .map((h) => h.hotelBasicInfo)
+        .filter((b): b is HotelBasicInfo => !!b && !!b.hotelNo);
+
+      if (data.search_context) {
+        setSearchContext(data.search_context);
       }
 
-      const data = await response.json();
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
         content: data.response || "応答を取得できませんでした。",
         timestamp: new Date(),
+        hotels: hotels.length > 0 ? hotels : undefined,
+        searchContext: data.search_context ?? undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -83,14 +77,15 @@ export function ChatWindow() {
       const welcomeMessage: Message = {
         id: generateId(),
         role: "assistant",
-        content: "こんにちは！旅行プランのお手伝いをします。\n\n行き先、日数、予算、好み（温泉、観光、グルメ、自然など）を教えてください。",
+        content:
+          "こんにちは！旅行プランのお手伝いをします。\n\n「行き先」「日付」「人数」を教えていただくと、実際のホテルの空室・料金と観光スポットを調べて、予約までできるプランを提案します。",
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
     }
   }, []);
 
-  // ホテル選択イベントを監視
+  // ホテル選択イベントを監視（手動検索パネルから）
   useEffect(() => {
     const handler = (e: CustomEvent) => {
       const hotel = e.detail;
@@ -109,12 +104,7 @@ export function ChatWindow() {
     return () => window.removeEventListener("hotel-selected", handler as EventListener);
   }, []);
 
-  const handleHotelSearchRequested = () => {
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    const dates = lastUserMsg ? extractDates(lastUserMsg.content) : { checkin: "", checkout: "" };
-    setSearchContext(dates);
-    setShowHotelSearch(true);
-  };
+  const showSuggestions = messages.length <= 1 && !isLoading;
 
   return (
     <div className="flex flex-col h-full bg-white relative">
@@ -132,7 +122,7 @@ export function ChatWindow() {
           </div>
         </div>
         <button
-          onClick={handleHotelSearchRequested}
+          onClick={() => setShowHotelSearch(true)}
           className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
         >
           🏨 宿泊検索
@@ -141,6 +131,21 @@ export function ChatWindow() {
 
       {/* Messages */}
       <MessageList messages={messages} isLoading={isLoading} />
+
+      {/* Suggestions */}
+      {showSuggestions && (
+        <div className="px-4 pb-2 flex flex-wrap gap-2">
+          {SUGGESTIONS.map((text) => (
+            <button
+              key={text}
+              onClick={() => sendMessage(text)}
+              className="px-3 py-2 bg-blue-50 text-blue-700 rounded-full text-sm hover:bg-blue-100 transition-colors text-left"
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error Toast */}
       {error && (
@@ -161,8 +166,10 @@ export function ChatWindow() {
             <HotelSearchPanel
               isOpen={showHotelSearch}
               onClose={() => setShowHotelSearch(false)}
-              checkin={searchContext.checkin}
-              checkout={searchContext.checkout}
+              area={searchContext.area ?? undefined}
+              checkin={searchContext.checkin ?? undefined}
+              checkout={searchContext.checkout ?? undefined}
+              adults={searchContext.adults ?? 2}
             />
           </div>
         </div>

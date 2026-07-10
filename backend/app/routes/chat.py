@@ -15,25 +15,39 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     conversation_history: Optional[List[dict]] = []
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None  # 互換のため受けるが、サーバー側の指示を常に使用
+
+
+class SearchContext(BaseModel):
+    area: Optional[str] = None
+    checkin: Optional[str] = None
+    checkout: Optional[str] = None
+    adults: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
     response: str
+    # チャット中にツールが検索したホテル（/api/hotels/search-area と同じ構造）。
+    # フロントはこれをカード表示し、予約導線につなげる。
+    hotels: List[dict] = []
+    search_context: Optional[SearchContext] = None
 
 
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Chat with Gemini model.
+    Chat with Gemini model (travel tools enabled).
     """
     try:
-        response = await chat_with_gemini(
+        result = await chat_with_gemini(
             user_message=request.message,
             conversation_history=request.conversation_history,
-            system_prompt=request.system_prompt
         )
-        return ChatResponse(response=response)
+        return ChatResponse(
+            response=result["text"],
+            hotels=result["hotels"],
+            search_context=result["search_context"],
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

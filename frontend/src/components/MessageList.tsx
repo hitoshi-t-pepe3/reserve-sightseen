@@ -2,6 +2,9 @@
 
 import { useCallback } from "react";
 import { Message } from "@/types/chat";
+import { MessageBubble } from "./MessageBubble";
+import { HotelCard } from "./HotelCard";
+import { buildReserveUrl } from "@/lib/api";
 
 interface MessageListProps {
   messages: Message[];
@@ -28,6 +31,24 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       {messages.map((message) => (
         <div key={message.id} className="w-full">
           <MessageBubble message={message} />
+          {/* チャット中に検索されたホテルをカードで表示（予約導線つき） */}
+          {message.hotels && message.hotels.length > 0 && (
+            <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4">
+              {message.hotels.map((hotel) => (
+                <div key={hotel.hotelNo} className="w-72 shrink-0">
+                  <HotelCard
+                    hotel={hotel}
+                    reserveUrl={buildReserveUrl(
+                      hotel.planListUrl,
+                      message.searchContext?.checkin ?? undefined,
+                      message.searchContext?.checkout ?? undefined,
+                      message.searchContext?.adults ?? 2
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
       {isLoading && (
@@ -35,7 +56,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           <div className="bg-gray-100 text-gray-900 px-4 py-2.5 rounded-2xl rounded-bl-md animate-pulse">
             <div className="flex gap-1">
               <span>▌</span>
-              <span>入力中...</span>
+              <span>プランを作成中...（ホテル・観光地を検索しています）</span>
             </div>
           </div>
         </div>
@@ -44,6 +65,3 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
     </div>
   );
 }
-
-// Lazy import to avoid circular dependency
-import { MessageBubble } from "./MessageBubble";

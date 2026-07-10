@@ -8,6 +8,8 @@ interface HotelCardProps {
   showVacancyButton?: boolean;
   checkin?: string;
   checkout?: string;
+  // 指定すると「楽天トラベルで予約」ボタンを表示（日付・人数プリセット済みURL）
+  reserveUrl?: string;
 }
 
 export function HotelCard({
@@ -16,6 +18,7 @@ export function HotelCard({
   showVacancyButton = false,
   checkin,
   checkout,
+  reserveUrl,
 }: HotelCardProps) {
   const imageUrl = hotel.hotelThumbnailUrl || hotel.hotelImageUrl;
   const rating = hotel.reviewAverage ? hotel.reviewAverage.toFixed(1) : '－';
@@ -102,6 +105,19 @@ export function HotelCard({
           <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg line-clamp-2 mb-3">
             {hotel.hotelSpecial}
           </p>
+        )}
+
+        {/* Reserve Button */}
+        {reserveUrl && (
+          <a
+            href={reserveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full py-2 bg-red-600 text-white text-center rounded-lg hover:bg-red-700 transition-colors text-sm font-medium mb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            楽天トラベルで予約
+          </a>
         )}
 
         {/* Vacancy Button */}
