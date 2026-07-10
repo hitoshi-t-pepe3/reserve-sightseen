@@ -14,6 +14,9 @@ class Settings(BaseSettings):
 
     # Jalan Web Service
     jalan_affiliate_id: str = ""
+    # じゃらんWebサービスのAPIキー（未設定の間はじゃらんAPI連携は無効。
+    # リンクボタン「じゃらんでも見る」はキー不要で常に有効）
+    jalan_api_key: str = ""
 
     # Google Places API
     google_places_api_key: str = ""

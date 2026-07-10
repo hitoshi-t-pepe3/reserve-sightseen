@@ -120,6 +120,19 @@ export function HotelCard({
           </a>
         )}
 
+        {/* Jalan Compare Link */}
+        {hotel.jalanSearchUrl && (
+          <a
+            href={hotel.jalanSearchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full py-2 border border-orange-400 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium mb-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            じゃらんでも見る（価格比較）
+          </a>
+        )}
+
         {/* Vacancy Button */}
         {showVacancyButton && checkin && checkout && (
           <button

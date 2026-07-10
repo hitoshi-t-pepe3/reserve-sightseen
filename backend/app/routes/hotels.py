@@ -115,15 +115,32 @@ async def search_by_area(
     ),
     realistic_price_limit: int = Query(10, description="実勢最安値を取得する上位件数（空室API呼び出し回数に直結するため上限あり）", le=20),
 ):
-    """エリア名でホテル検索（簡易版）"""
+    """エリア名でホテル検索。主要都市以外は Google Places で座標に解決して検索する"""
     try:
-        hotels = await rakuten_travel_tool.search_by_area(
-            area_name=area, checkin=checkin, checkout=checkout,
-            adults=adults, rooms=rooms, hits=hits,
-            use_realistic_price=use_realistic_price,
-            realistic_price_limit=realistic_price_limit,
-        )
+        try:
+            hotels = await rakuten_travel_tool.search_by_area(
+                area_name=area, checkin=checkin, checkout=checkout,
+                adults=adults, rooms=rooms, hits=hits,
+                use_realistic_price=use_realistic_price,
+                realistic_price_limit=realistic_price_limit,
+            )
+        except ValueError:
+            # 内部マップにないエリア名 → ジオコーディングにフォールバック
+            import asyncio
+            from app.tools.google_places import google_places_tool
+            place = await asyncio.to_thread(google_places_tool.geocode_place, area)
+            if not place:
+                raise HTTPException(status_code=404, detail=f"場所を特定できませんでした: {area}")
+            hotels = await rakuten_travel_tool.search_by_location(
+                lat=place["lat"], lng=place["lng"], radius=3.0,
+                checkin=checkin, checkout=checkout,
+                adults=adults, rooms=rooms, hits=hits,
+                use_realistic_price=use_realistic_price,
+                realistic_price_limit=realistic_price_limit,
+            )
         return {"hotels": hotels, "count": len(hotels)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

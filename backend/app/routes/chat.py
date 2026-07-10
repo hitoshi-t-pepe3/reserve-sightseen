@@ -12,10 +12,17 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class UserLocation(BaseModel):
+    lat: float
+    lng: float
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_history: Optional[List[dict]] = []
     system_prompt: Optional[str] = None  # 互換のため受けるが、サーバー側の指示を常に使用
+    # ブラウザの位置情報（散歩モード等）。付与されるとチャットが周辺検索に使える
+    user_location: Optional[UserLocation] = None
 
 
 class SearchContext(BaseModel):
@@ -42,6 +49,7 @@ async def chat(request: ChatRequest):
         result = await chat_with_gemini(
             user_message=request.message,
             conversation_history=request.conversation_history,
+            user_location=request.user_location.model_dump() if request.user_location else None,
         )
         return ChatResponse(
             response=result["text"],

@@ -15,7 +15,14 @@ function generateId() {
 const SUGGESTIONS = [
   "7月25日から京都に1泊、大人2人。歴史とグルメを楽しみたい",
   "8月の土日に沖縄へ2泊、大人2人。ビーチでのんびりしたい",
-  "来週末に札幌へ1泊、ひとり旅。グルメ中心がいい",
+];
+
+// 趣味テーマ。選ぶとテーマに沿った聞き取り（会場名・作品名など）から始まる。
+const THEMES = [
+  { label: "🎤 推し活・遠征", starter: "推し活の遠征プランを相談したい。コンサート会場の近くに泊まりたい" },
+  { label: "🚃 乗り鉄", starter: "乗り鉄の旅を計画したい" },
+  { label: "⛩️ 聖地巡礼", starter: "アニメの聖地巡礼プランを作りたい" },
+  { label: "♨️ 温泉", starter: "温泉宿でゆっくりする旅がしたい" },
 ];
 
 export function ChatWindow() {
@@ -25,8 +32,14 @@ export function ChatWindow() {
   const [showHotelSearch, setShowHotelSearch] = useState(false);
   // 直近のチャット検索条件。手動ホテル検索パネルの初期値・予約URLに引き継ぐ。
   const [searchContext, setSearchContext] = useState<SearchContext>({});
+  // 位置情報の許可を一度得たら、以降のメッセージにも現在地を添える（散歩モードの続きの会話用）
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (
+    content: string,
+    locationOverride?: { lat: number; lng: number }
+  ) => {
     const userMessage: Message = {
       id: generateId(),
       role: "user",
@@ -43,7 +56,7 @@ export function ChatWindow() {
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const data = await sendChatMessage(content, conversationHistory);
+      const data = await sendChatMessage(content, conversationHistory, locationOverride ?? userLocation);
 
       // API のホテル構造 {hotelBasicInfo, hotelRatingInfo} をカード用にフラット化
       const hotels: HotelBasicInfo[] = (data.hotels || [])
@@ -69,7 +82,29 @@ export function ChatWindow() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages]);
+  }, [messages, userLocation]);
+
+  // 散歩モード: 位置情報の許可を取り、現在地つきで散歩プランを依頼する
+  const startWalkMode = useCallback(() => {
+    if (!navigator.geolocation) {
+      setError("この端末では位置情報を利用できません");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(loc);
+        setLocating(false);
+        sendMessage("いまいる場所の周辺で、歩いて回れる散歩プランを作って", loc);
+      },
+      () => {
+        setLocating(false);
+        setError("位置情報を取得できませんでした。ブラウザの位置情報の許可を確認してください。");
+      },
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  }, [sendMessage]);
 
   // Welcome message on first load
   useEffect(() => {
@@ -78,7 +113,7 @@ export function ChatWindow() {
         id: generateId(),
         role: "assistant",
         content:
-          "こんにちは！旅行プランのお手伝いをします。\n\n「行き先」「日付」「人数」を教えていただくと、実際のホテルの空室・料金と観光スポットを調べて、予約までできるプランを提案します。",
+          "こんにちは！旅行プランのお手伝いをします。\n\n「行き先」「日付」「人数」を教えていただくと、実際のホテルの空室・料金と観光スポットを調べて、予約までできるプランを提案します。\n\n行き先は都市名のほか、駅名・コンサート会場・観光地などでもOK。下のボタンから「いまから散歩」や趣味のテーマも選べます。",
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
@@ -134,16 +169,36 @@ export function ChatWindow() {
 
       {/* Suggestions */}
       {showSuggestions && (
-        <div className="px-4 pb-2 flex flex-wrap gap-2">
-          {SUGGESTIONS.map((text) => (
+        <div className="px-4 pb-2 space-y-2">
+          <div className="flex flex-wrap gap-2">
             <button
-              key={text}
-              onClick={() => sendMessage(text)}
-              className="px-3 py-2 bg-blue-50 text-blue-700 rounded-full text-sm hover:bg-blue-100 transition-colors text-left"
+              onClick={startWalkMode}
+              disabled={locating}
+              className="px-3 py-2 bg-green-600 text-white rounded-full text-sm hover:bg-green-700 disabled:opacity-60 transition-colors font-medium"
             >
-              {text}
+              {locating ? "現在地を取得中..." : "📍 いまから散歩プラン"}
             </button>
-          ))}
+            {THEMES.map((theme) => (
+              <button
+                key={theme.label}
+                onClick={() => sendMessage(theme.starter)}
+                className="px-3 py-2 bg-purple-50 text-purple-700 rounded-full text-sm hover:bg-purple-100 transition-colors"
+              >
+                {theme.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {SUGGESTIONS.map((text) => (
+              <button
+                key={text}
+                onClick={() => sendMessage(text)}
+                className="px-3 py-2 bg-blue-50 text-blue-700 rounded-full text-sm hover:bg-blue-100 transition-colors text-left"
+              >
+                {text}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

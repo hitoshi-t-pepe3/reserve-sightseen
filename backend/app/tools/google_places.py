@@ -30,6 +30,65 @@ class GooglePlacesTool:
     def __init__(self):
         self.client = GoogleMapsClient(key=settings.google_places_api_key)
 
+    def geocode_place(self, query: str, language: str = "ja") -> Optional[dict]:
+        """任意の場所名（都市・駅・会場・観光地など）を座標に解決する。
+
+        Places Text Search の先頭結果を採用。ホテル検索の中心点として使うため、
+        名前と住所も返して呼び出し側が「どことして解決されたか」を確認できるようにする。
+        """
+        try:
+            response = self.client.places(query=query, language=language)
+            results = response.get("results") or []
+            if not results:
+                return None
+            top = results[0]
+            loc = top["geometry"]["location"]
+            return {
+                "name": top.get("name", query),
+                "address": top.get("formatted_address", ""),
+                "lat": loc["lat"],
+                "lng": loc["lng"],
+            }
+        except Exception:
+            return None
+
+    def search_nearby(self, lat: float, lng: float, radius: int = 1500,
+                      type_: Optional[str] = None, keyword: Optional[str] = None,
+                      language: str = "ja") -> list[PlaceResult]:
+        """現在地などの座標周辺のスポットを検索（散歩モード用）"""
+        try:
+            kwargs = {
+                "location": (lat, lng),
+                "radius": radius,
+                "language": language,
+            }
+            if type_:
+                kwargs["type"] = type_
+            if keyword:
+                kwargs["keyword"] = keyword
+
+            response = self.client.places_nearby(**kwargs)
+
+            results = []
+            for place in response.get("results", []):
+                results.append(PlaceResult(
+                    place_id=place.get("place_id", ""),
+                    name=place.get("name", ""),
+                    address=place.get("vicinity", place.get("formatted_address", "")),
+                    location={
+                        "lat": place["geometry"]["location"]["lat"],
+                        "lng": place["geometry"]["location"]["lng"]
+                    },
+                    rating=place.get("rating"),
+                    user_ratings_total=place.get("user_ratings_total"),
+                    types=place.get("types", []),
+                    price_level=place.get("price_level"),
+                    photo_reference=place.get("photos", [{}])[0].get("photo_reference") if place.get("photos") else None,
+                ))
+            return results
+        except Exception as e:
+            raise Exception(f"Google Places Nearby API error: {str(e)}")
+
     def search_places(self, params: PlaceSearchParams) -> list[PlaceResult]:
         """Google Places API (New) で場所を検索"""
         try:

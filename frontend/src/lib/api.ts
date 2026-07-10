@@ -25,6 +25,8 @@ export interface HotelBasicInfo {
   // hotelMinCharge は一般ユーザー向けの実勢価格ではないことを示す。
   hotelMinChargeRestrictedOnly?: boolean;
   hotelMinChargeUnavailable?: boolean;
+  // じゃらんnet の同名ホテル検索ページ（価格比較用・バックエンドで生成）
+  jalanSearchUrl?: string;
 }
 
 export interface HotelRatingInfo {
@@ -129,7 +131,8 @@ export interface ChatApiResponse {
 
 export async function sendChatMessage(
   message: string,
-  conversationHistory: { role: string; content: string }[]
+  conversationHistory: { role: string; content: string }[],
+  userLocation?: { lat: number; lng: number } | null
 ): Promise<ChatApiResponse> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -137,6 +140,7 @@ export async function sendChatMessage(
     body: JSON.stringify({
       message,
       conversation_history: conversationHistory,
+      ...(userLocation ? { user_location: userLocation } : {}),
     }),
   });
   if (!res.ok) throw new Error(`API Error: ${res.status}`);

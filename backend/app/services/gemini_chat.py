@@ -1,6 +1,8 @@
 import asyncio
 import os
+import re
 from datetime import datetime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
@@ -29,13 +31,12 @@ def _system_instruction() -> str:
     now = datetime.now(ZoneInfo("Asia/Tokyo"))
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     today = f"{now.strftime('%Y-%m-%d')}（{weekdays[now.weekday()]}）"
-    areas = "、".join(AREA_COORDS.keys())
     return f"""あなたは旅行プラン提案アシスタント「ReserveSightseen」です。
 今日は {today} です。「来週末」「明日」などの相対的な日付は、この日付を基準に YYYY-MM-DD 形式へ変換してください。過去の日付が指定されたら翌年ではなく、日付の確認をしてください。
 
 ## 絶対のルール（違反禁止）
 - ホテル名・料金を回答に書いてよいのは、search_hotels の結果を受け取った後だけです。ツールを呼ばずに知識からホテルを提案することは禁止です。
-- 観光地を提案する前に必ず search_tourist_spots を呼びます。
+- 観光地を提案する前に必ず search_tourist_spots（現在地周辺なら search_spots_nearby）を呼びます。
 - 行き先・宿泊日・人数が揃ったら、文章を書き始める前にまずツールを呼び出してください。これは会話が何往復目でも同じです。
 
 ## 進め方
@@ -46,10 +47,24 @@ def _system_instruction() -> str:
    - **おすすめホテル**: ツール結果の上位2〜3件。ホテル名・1泊料金・特徴（最寄り駅や評価）を短く
 4. 最後に「気になるホテルは、下のホテルカードの『楽天トラベルで予約』ボタンからそのまま予約できます」と案内してください。
 
+## 場所の指定について
+- search_hotels の location には都市名だけでなく、駅名・コンサート会場名・テーマパーク名・観光地名など任意の場所を渡せます（内部で座標に解決して周辺3km圏を検索します）。
+- ツール結果の resolvedLocation を見て、意図と違う場所に解決されていたら（例: 同名の別地域）ユーザーに確認してください。
+
+## テーマ別ガイド
+ユーザーの目的に合わせて聞くこと・提案の重点を変えてください:
+- **推し活・遠征**（コンサート・イベント）: 会場名と公演日を確認し、search_hotels に会場名を渡して徒歩圏の宿を優先。終演後の移動が楽なこと、翌朝の物販・入場列に備えやすいことを重視して紹介する。
+- **乗り鉄**: 乗りたい路線・列車・区間を確認。始発や乗り換えに便利な駅名で search_hotels し、駅近を優先。プランは列車の乗車体験を軸に組む。
+- **聖地巡礼**: 作品名を確認し、search_tourist_spots の query に「作品名 聖地」を渡して検索。結果が乏しければ舞台になった土地名で再検索し、巡礼順のモデルコースにする。
+- **温泉**: search_hotels の onsen=true を使い、温泉宿だけに絞る。
+- **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所の散歩コースを提案する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+
+## スポットの地図リンク
+ツール結果の各スポットには mapUrl が付いています。スポットを紹介するときは必ず [スポット名](mapUrl) の形式でリンクにしてください。URLを自作してはいけません。
+
 ## 制約
 - ホテル名・料金・観光地名はツールの結果だけを使い、創作しないでください。
 - 料金が取得できないホテルは「料金は要確認」と書いてください。
-- 対応エリア: {areas}。それ以外の行き先を希望されたら、対応エリアの中から近い候補を提案してください。
 - 曜日は計算を誤りやすいため、日付に曜日を書き添えないでください（今日の曜日のみ上に示した通り）。
 - 回答は日本語で、Markdownの見出し・箇条書きを使って読みやすく。長すぎないように。"""
 
@@ -57,39 +72,78 @@ def _system_instruction() -> str:
 _SEARCH_HOTELS_DECL = FunctionDeclaration(
     name="search_hotels",
     description=(
-        "楽天トラベルでエリア名からホテルを検索する。宿泊日と人数を指定すると"
-        "空室の実勢最安料金つきで返す。対応エリア: " + "、".join(AREA_COORDS.keys())
+        "楽天トラベルで場所名からホテルを検索する。都市名・駅名・コンサート会場名・"
+        "テーマパーク名・観光地名など任意の場所を指定でき、その周辺3km圏の宿を返す。"
+        "宿泊日と人数を指定すると空室の実勢最安料金つきで返す。"
     ),
     parameters={
         "type": "object",
         "properties": {
-            "area": {"type": "string", "description": "エリア名（例: 京都）"},
+            "location": {
+                "type": "string",
+                "description": "場所名（例: 京都、京セラドーム大阪、金沢駅、箱根湯本）",
+            },
             "checkin": {"type": "string", "description": "チェックイン日 YYYY-MM-DD"},
             "checkout": {"type": "string", "description": "チェックアウト日 YYYY-MM-DD"},
             "adults": {"type": "integer", "description": "大人の人数（デフォルト2）"},
+            "onsen": {"type": "boolean", "description": "true で温泉宿に絞る"},
         },
-        "required": ["area"],
+        "required": ["location"],
     },
 )
 
 _SEARCH_SPOTS_DECL = FunctionDeclaration(
     name="search_tourist_spots",
-    description="Google Places でエリアの観光スポットまたは飲食店を検索する。",
+    description=(
+        "Google Places で観光スポット・飲食店を検索する。"
+        "query には「京都 観光」のようなエリア指定のほか、「作品名 聖地」のような"
+        "テーマ検索も渡せる。"
+    ),
     parameters={
         "type": "object",
         "properties": {
-            "area": {"type": "string", "description": "エリア名（例: 京都）"},
+            "query": {
+                "type": "string",
+                "description": "検索語（例: 京都、ぼっち・ざ・ろっく 聖地、下呂 食べ歩き）",
+            },
             "category": {
                 "type": "string",
                 "enum": ["sightseeing", "restaurant"],
                 "description": "sightseeing=観光スポット, restaurant=飲食店",
             },
         },
-        "required": ["area"],
+        "required": ["query"],
     },
 )
 
-_TRAVEL_TOOL = Tool(function_declarations=[_SEARCH_HOTELS_DECL, _SEARCH_SPOTS_DECL])
+_SEARCH_NEARBY_DECL = FunctionDeclaration(
+    name="search_spots_nearby",
+    description=(
+        "ユーザーの現在地など、指定座標の周辺スポットを検索する（散歩モード用）。"
+        "現在地はメッセージ冒頭の [システム情報: ...] に書かれた lat/lng を使うこと。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "lat": {"type": "number", "description": "緯度"},
+            "lng": {"type": "number", "description": "経度"},
+            "category": {
+                "type": "string",
+                "enum": ["sightseeing", "cafe", "restaurant", "park"],
+                "description": "スポット種別（デフォルト sightseeing）",
+            },
+            "radius_m": {
+                "type": "integer",
+                "description": "検索半径メートル（徒歩想定。デフォルト1500、最大3000）",
+            },
+        },
+        "required": ["lat", "lng"],
+    },
+)
+
+_TRAVEL_TOOL = Tool(
+    function_declarations=[_SEARCH_HOTELS_DECL, _SEARCH_SPOTS_DECL, _SEARCH_NEARBY_DECL]
+)
 
 
 def _init_vertex_ai():
@@ -146,6 +200,22 @@ def _extract_text(response) -> str:
         return ""
 
 
+# 「8月22日（木）」「2026-08-22(土)」のような日付直後の曜日表記。
+# モデルは曜日計算を高頻度で誤る（プロンプトで禁止しても書いてくる）ため、
+# 誤情報を出すくらいなら機械的に削る。
+_WEEKDAY_AFTER_DATE = re.compile(
+    r"((?:\d{1,2}月\d{1,2}日|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}))\s*[（(][月火水木金土日]曜?[）)]"
+)
+
+# モデルがまれに出力する HTML の改行タグ（フロントは Markdown 描画のため素通りする）
+_BR_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+def _clean_response_text(text: str) -> str:
+    text = _BR_TAG.sub("\n", text)
+    return _WEEKDAY_AFTER_DATE.sub(r"\1", text)
+
+
 def _compact_hotels(hotels: List[dict]) -> List[dict]:
     """LLM に渡す用の要約。トークン量と創作リスクを抑えるため必要項目のみ。"""
     compact = []
@@ -170,66 +240,133 @@ def _compact_hotels(hotels: List[dict]) -> List[dict]:
     return compact
 
 
+def _map_url(name: str, address: str = "") -> str:
+    """スポット名からGoogleマップの検索リンクを生成（LLMにURLを自作させない）"""
+    query = quote(f"{name} {address}".strip())
+    return f"https://www.google.com/maps/search/?api=1&query={query}"
+
+
+def _compact_spots(spots: list) -> list[dict]:
+    return [
+        {
+            "name": s.name,
+            "rating": s.rating,
+            "reviews": s.user_ratings_total,
+            "address": s.address,
+            "mapUrl": _map_url(s.name, s.address),
+        }
+        for s in spots[:8]
+    ]
+
+
 async def _run_search_hotels(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
-    area = str(args.get("area") or "").strip()
+    location = str(args.get("location") or args.get("area") or "").strip()
     checkin = args.get("checkin") or None
     checkout = args.get("checkout") or None
+    onsen = bool(args.get("onsen"))
     try:
         adults = int(args.get("adults") or 2)
     except (TypeError, ValueError):
         adults = 2
 
+    # 場所名 → 座標。主要都市は内部マップ、それ以外は Google Places で解決する
+    coords = AREA_COORDS.get(location)
+    resolved_name = location
+    if coords:
+        lat, lng = coords
+    else:
+        place = await asyncio.to_thread(google_places_tool.geocode_place, location)
+        if not place:
+            return {"error": f"「{location}」の場所を特定できませんでした。別の表記を試してください。"}
+        lat, lng = place["lat"], place["lng"]
+        resolved_name = f"{place['name']}（{place['address']}）"
+
     try:
-        hotels = await rakuten_travel_tool.search_by_area(
-            area_name=area,
+        hotels = await rakuten_travel_tool.search_by_location(
+            lat=lat,
+            lng=lng,
+            radius=3.0,
             checkin=checkin,
             checkout=checkout,
             adults=adults,
             hits=8,
             realistic_price_limit=5,
+            squeeze_condition="onsen" if onsen else None,
         )
-    except ValueError:
-        return {
-            "error": f"「{area}」は未対応エリアです。",
-            "supported_areas": list(AREA_COORDS.keys()),
-        }
     except Exception as e:
         return {"error": f"ホテル検索に失敗しました: {e}"}
+
+    if not hotels:
+        return {
+            "resolvedLocation": resolved_name,
+            "hotels": [],
+            "count": 0,
+            "note": "周辺3km圏に該当する宿が見つかりませんでした。近隣の駅名や市街地名で再検索してください。",
+        }
 
     hotels = hotels[:6]
     state["hotels"] = hotels
     state["search_context"] = {
-        "area": area,
+        "area": location,
         "checkin": checkin,
         "checkout": checkout,
         "adults": adults,
     }
-    return {"hotels": _compact_hotels(hotels), "count": len(hotels)}
+    return {
+        "resolvedLocation": resolved_name,
+        "hotels": _compact_hotels(hotels),
+        "count": len(hotels),
+    }
 
 
 async def _run_search_spots(args: Dict[str, Any]) -> dict:
-    area = str(args.get("area") or "").strip()
+    query = str(args.get("query") or args.get("area") or "").strip()
     category = args.get("category") or "sightseeing"
     try:
         # googlemaps クライアントは同期実装のためスレッドに逃がす
         if category == "restaurant":
-            spots = await asyncio.to_thread(google_places_tool.search_restaurants, area)
+            spots = await asyncio.to_thread(google_places_tool.search_restaurants, query)
         else:
-            spots = await asyncio.to_thread(google_places_tool.search_tourist_spots, area)
+            spots = await asyncio.to_thread(google_places_tool.search_tourist_spots, query)
     except Exception as e:
         return {"error": f"観光地検索に失敗しました: {e}"}
 
-    return {
-        "spots": [
-            {
-                "name": s.name,
-                "rating": s.rating,
-                "reviews": s.user_ratings_total,
-                "address": s.address,
-            }
-            for s in spots[:8]
-        ]
-    }
+    return {"spots": _compact_spots(spots)}
+
+
+_NEARBY_CATEGORY_TO_TYPE = {
+    "sightseeing": "tourist_attraction",
+    "cafe": "cafe",
+    "restaurant": "restaurant",
+    "park": "park",
+}
+
+
+async def _run_search_nearby(args: Dict[str, Any]) -> dict:
+    try:
+        lat = float(args["lat"])
+        lng = float(args["lng"])
+    except (KeyError, TypeError, ValueError):
+        return {"error": "lat/lng が不正です。メッセージ冒頭の [現在地: lat,lng] を渡してください。"}
+
+    category = args.get("category") or "sightseeing"
+    try:
+        radius = min(int(args.get("radius_m") or 1500), 3000)
+    except (TypeError, ValueError):
+        radius = 1500
+
+    try:
+        spots = await asyncio.to_thread(
+            google_places_tool.search_nearby,
+            lat, lng, radius, _NEARBY_CATEGORY_TO_TYPE.get(category, "tourist_attraction"),
+        )
+    except Exception as e:
+        return {"error": f"周辺スポット検索に失敗しました: {e}"}
+
+    if not spots:
+        return {"spots": [], "note": "周辺にスポットが見つかりませんでした。radius_m を広げて再試行してください。"}
+
+    return {"spots": _compact_spots(spots)}
 
 
 async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) -> dict:
@@ -237,6 +374,8 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
         return await _run_search_hotels(args, state)
     if name == "search_tourist_spots":
         return await _run_search_spots(args)
+    if name == "search_spots_nearby":
+        return await _run_search_nearby(args)
     return {"error": f"未知のツール: {name}"}
 
 
@@ -244,9 +383,14 @@ async def chat_with_gemini(
     user_message: str,
     conversation_history: List[Dict[str, str]] = None,
     system_prompt: str = None,  # 互換のため残置（サーバー側の指示を常に使用）
+    user_location: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
     Chat with Gemini model via Vertex AI, with travel tools (function calling).
+
+    Args:
+        user_location: {"lat": float, "lng": float}。散歩モード等で
+            search_spots_nearby に渡すため、メッセージ冒頭に付与する。
 
     Returns:
         {"text": str, "hotels": list[dict], "search_context": dict | None}
@@ -261,9 +405,17 @@ async def chat_with_gemini(
 
     state: Dict[str, Any] = {"hotels": [], "search_context": None}
 
+    message = user_message
+    if user_location and "lat" in user_location and "lng" in user_location:
+        message = (
+            f"[システム情報: ユーザーの現在地は lat={user_location['lat']}, lng={user_location['lng']} です。"
+            "周辺検索にはこの座標を使うこと。回答は日本語で。]\n"
+            f"{user_message}"
+        )
+
     try:
         chat = model.start_chat(history=_build_history(conversation_history))
-        response = await chat.send_message_async(user_message)
+        response = await chat.send_message_async(message)
 
         for _ in range(_MAX_TOOL_TURNS):
             calls = _extract_function_calls(response)
@@ -278,7 +430,7 @@ async def chat_with_gemini(
                 )
             response = await chat.send_message_async(response_parts)
 
-        text = _extract_text(response)
+        text = _clean_response_text(_extract_text(response))
         if not text:
             text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
 

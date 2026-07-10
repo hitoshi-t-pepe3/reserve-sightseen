@@ -278,11 +278,13 @@ class RakutenTravelTool:
 
     async def search_by_area(self, area_name: str, checkin: Optional[str] = None, checkout: Optional[str] = None,
                              adults: int = 2, rooms: int = 1, hits: int = 20,
-                             use_realistic_price: bool = True, realistic_price_limit: int = 10) -> list:
+                             use_realistic_price: bool = True, realistic_price_limit: int = 10,
+                             squeeze_condition: Optional[str] = None) -> list:
         """エリア名で検索（主要都市の緯度経度を内部マップから取得）"""
         coords = AREA_COORDS.get(area_name)
         if not coords:
-            # フォールバック: 区分コードでの検索を試みる（要調査）
+            # 呼び出し側（routes/hotels.py・チャットツール）が Google Places の
+            # ジオコーディングにフォールバックする
             raise ValueError(f"未対応エリア: {area_name}。緯度経度を直接指定してください。")
         return await self.search_by_location(
             lat=coords[0], lng=coords[1], radius=3.0,
@@ -290,13 +292,15 @@ class RakutenTravelTool:
             adults=adults, rooms=rooms, hits=hits,
             use_realistic_price=use_realistic_price,
             realistic_price_limit=realistic_price_limit,
+            squeeze_condition=squeeze_condition,
         )
 
     async def search_by_location(self, lat: float, lng: float, radius: float = 3.0,
                                   checkin: Optional[str] = None, checkout: Optional[str] = None,
                                   adults: int = 2, rooms: int = 1, hits: int = 20,
                                   use_realistic_price: bool = True,
-                                  realistic_price_limit: int = 10) -> list:
+                                  realistic_price_limit: int = 10,
+                                  squeeze_condition: Optional[str] = None) -> list:
         """緯度経度で検索（世界測地系）
 
         use_realistic_price=True の場合、上位 realistic_price_limit 件について
@@ -313,6 +317,7 @@ class RakutenTravelTool:
             room_num=rooms,
             hits=hits,
             sort="+roomCharge",
+            squeeze_condition=squeeze_condition,
         )
         result = await self.search_hotels(params)
         hotels = self._parse_hotels(result)
@@ -322,6 +327,15 @@ class RakutenTravelTool:
             await self.enrich_with_realistic_prices(
                 target, checkin=checkin, checkout=checkout, adults=max(adults, 1), rooms=rooms
             )
+
+        # 価格比較用: じゃらんnet の検索ページへのリンク（APIキー不要）
+        from app.tools.jalan_travel import build_jalan_search_url
+        for hotel in hotels:
+            basic_info = hotel.get("hotelBasicInfo")
+            if isinstance(basic_info, dict) and basic_info.get("hotelName"):
+                url = build_jalan_search_url(basic_info["hotelName"])
+                if url:
+                    basic_info["jalanSearchUrl"] = url
 
         return hotels
 
