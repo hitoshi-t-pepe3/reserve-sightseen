@@ -123,10 +123,33 @@ export interface SearchContext {
   adults?: number;
 }
 
+export interface ItineraryItem {
+  time?: string | null;
+  name: string;
+  category: 'spot' | 'meal' | 'hotel' | 'move';
+  description?: string | null;
+  durationMin?: number | null;
+  mapUrl?: string;
+  // 直前の地点からの Google マップ経路リンク（散歩コースは徒歩モード）
+  navUrl?: string;
+}
+
+export interface ItineraryDay {
+  label: string;
+  items: ItineraryItem[];
+}
+
+export interface Itinerary {
+  title: string;
+  mode: 'walk' | 'travel';
+  days: ItineraryDay[];
+}
+
 export interface ChatApiResponse {
   response: string;
   hotels: HotelSearchResult[];
   search_context?: SearchContext | null;
+  itinerary?: Itinerary | null;
 }
 
 export async function sendChatMessage(

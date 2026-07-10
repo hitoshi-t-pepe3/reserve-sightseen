@@ -74,6 +74,7 @@ export function ChatWindow() {
         timestamp: new Date(),
         hotels: hotels.length > 0 ? hotels : undefined,
         searchContext: data.search_context ?? undefined,
+        itinerary: data.itinerary ?? undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);

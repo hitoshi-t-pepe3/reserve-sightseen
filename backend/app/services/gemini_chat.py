@@ -23,8 +23,8 @@ from app.tools.google_places import google_places_tool
 _initialized = False
 _model = None
 
-# ツール呼び出しの往復上限。ホテル検索+観光地検索+まとめで通常2〜3回で収束する。
-_MAX_TOOL_TURNS = 4
+# ツール呼び出しの往復上限。ホテル検索+観光地検索+日程表登録+まとめで通常3〜4回で収束する。
+_MAX_TOOL_TURNS = 6
 
 
 def _system_instruction() -> str:
@@ -43,10 +43,11 @@ def _system_instruction() -> str:
 ## 進め方
 1. プラン作成には「行き先」「チェックイン日・チェックアウト日」「人数」が必要です。足りない情報だけを1回のメッセージで簡潔に質問してください（既に会話に出ている情報は聞き直さない）。
 2. 3つが揃ったら、必ず search_hotels と search_tourist_spots を呼び出し、実データに基づいて提案してください。
-3. 提案は次の構成でまとめてください:
-   - **旅行プラン**: 1日ごとに「午前・午後・夜」のモデルコース（観光地はツール結果から選ぶ）
-   - **おすすめホテル**: ツール結果の上位2〜3件。ホテル名・1泊料金・特徴（最寄り駅や評価）を短く
-4. 最後に「気になるホテルは、下のホテルカードの『楽天トラベルで予約』ボタンからそのまま予約できます」と案内してください。
+3. プランを提案するときは、必ず create_itinerary を呼んで日程表を登録してください（時刻の目安・観光/食事/宿の区別・ツール結果の address を含める）。日程表はアプリがタイムラインUIで表示します。
+4. 本文は次だけを簡潔に書いてください（行程の詳細は日程表に任せて繰り返さない。「日程表を登録しました」のようなシステム的な文も書かない。プランの魅力の要約から書き出す）:
+   - プランの狙い・見どころの1〜2文の要約
+   - **おすすめホテル**（search_hotels を使った場合のみ）: ツール結果の上位2〜3件。ホテル名・1泊料金・特徴を短く。最後に「気になるホテルは、下のホテルカードの『楽天トラベルで予約』ボタンからそのまま予約できます」と案内
+   - 散歩コースなどホテルが不要な提案では、ホテルの話は書かない
 
 ## 場所の指定について
 - search_hotels の location には都市名だけでなく、駅名・コンサート会場名・テーマパーク名・観光地名など任意の場所を渡せます（内部で座標に解決して周辺3km圏を検索します）。
@@ -58,7 +59,7 @@ def _system_instruction() -> str:
 - **乗り鉄**: 乗りたい路線・列車・区間を確認。始発や乗り換えに便利な駅名で search_hotels し、駅近を優先。プランは列車の乗車体験を軸に組む。
 - **聖地巡礼**: 作品名を確認し、search_tourist_spots の query に「作品名 聖地」を渡して検索。結果が乏しければ舞台になった土地名で再検索し、巡礼順のモデルコースにする。
 - **温泉**: search_hotels の onsen=true を使い、温泉宿だけに絞る。
-- **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所の散歩コースを提案する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+- **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
 
 ## スポットの地図リンク
 ツール結果の各スポットには mapUrl が付いています。スポットを紹介するときは必ず [スポット名](mapUrl) の形式でリンクにしてください。URLを自作してはいけません。
@@ -142,8 +143,65 @@ _SEARCH_NEARBY_DECL = FunctionDeclaration(
     },
 )
 
+_CREATE_ITINERARY_DECL = FunctionDeclaration(
+    name="create_itinerary",
+    description=(
+        "旅行・散歩プランを日程表として登録する。プラン（散歩コース含む）を提案する"
+        "ときは、検索ツールの結果を使って必ずこれを呼ぶこと。登録した日程表はアプリが"
+        "タイムラインUIで表示するため、本文には日程の詳細を繰り返し書かなくてよい。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "プラン名（例: 京都1泊2日 歴史とグルメの旅）"},
+            "mode": {
+                "type": "string",
+                "enum": ["walk", "travel"],
+                "description": "walk=徒歩の散歩コース, travel=旅行プラン",
+            },
+            "days": {
+                "type": "array",
+                "description": "日ごとのスケジュール。散歩コースは1要素",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "description": "例: 1日目（2026-07-25） / 散歩コース"},
+                        "items": {
+                            "type": "array",
+                            "description": "時系列順の行程",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "time": {"type": "string", "description": "目安時刻 HH:MM（例 10:00）"},
+                                    "name": {"type": "string", "description": "スポット名・店名・ホテル名"},
+                                    "category": {
+                                        "type": "string",
+                                        "enum": ["spot", "meal", "hotel", "move"],
+                                        "description": "spot=観光, meal=食事, hotel=宿, move=移動",
+                                    },
+                                    "description": {"type": "string", "description": "1文の説明"},
+                                    "durationMin": {"type": "integer", "description": "滞在目安（分）"},
+                                    "address": {"type": "string", "description": "検索ツール結果の address をそのまま入れる"},
+                                },
+                                "required": ["name", "category"],
+                            },
+                        },
+                    },
+                    "required": ["label", "items"],
+                },
+            },
+        },
+        "required": ["title", "days"],
+    },
+)
+
 _TRAVEL_TOOL = Tool(
-    function_declarations=[_SEARCH_HOTELS_DECL, _SEARCH_SPOTS_DECL, _SEARCH_NEARBY_DECL]
+    function_declarations=[
+        _SEARCH_HOTELS_DECL,
+        _SEARCH_SPOTS_DECL,
+        _SEARCH_NEARBY_DECL,
+        _CREATE_ITINERARY_DECL,
+    ]
 )
 
 
@@ -387,6 +445,84 @@ async def _run_search_nearby(args: Dict[str, Any]) -> dict:
     return {"spots": _compact_spots(spots)}
 
 
+def _to_plain(value: Any) -> Any:
+    """proto-plus の MapComposite / RepeatedComposite をネスト込みで素の Python 型へ変換する"""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "items"):
+        return {k: _to_plain(v) for k, v in value.items()}
+    try:
+        return [_to_plain(v) for v in value]
+    except TypeError:
+        return value
+
+
+def _dir_url(origin: str, dest: str, walking: bool) -> str:
+    """2地点間の Google マップ経路リンク（散歩コースは徒歩モード指定）"""
+    url = (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={quote(origin)}&destination={quote(dest)}"
+    )
+    if walking:
+        url += "&travelmode=walking"
+    return url
+
+
+async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
+    title = str(args.get("title") or "プラン").strip()
+    mode = args.get("mode") if args.get("mode") in ("walk", "travel") else "travel"
+    walking = mode == "walk"
+
+    days_out = []
+    for day in args.get("days") or []:
+        if not isinstance(day, dict):
+            continue
+        items_out = []
+        prev_query = None  # 直前の訪問地点（経路リンクの起点）
+        for item in day.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            category = item.get("category") if item.get("category") in ("spot", "meal", "hotel", "move") else "spot"
+            address = str(item.get("address") or "").strip()
+            query = f"{name} {address}".strip()
+
+            duration = None
+            try:
+                if item.get("durationMin") is not None:
+                    duration = int(item["durationMin"])
+            except (TypeError, ValueError):
+                pass
+
+            out: Dict[str, Any] = {
+                "time": str(item["time"]) if item.get("time") else None,
+                "name": name,
+                "category": category,
+                "description": str(item["description"]) if item.get("description") else None,
+                "durationMin": duration,
+                "mapUrl": _map_url(name, address),
+            }
+            if category != "move":
+                if prev_query:
+                    out["navUrl"] = _dir_url(prev_query, query, walking)
+                prev_query = query
+            items_out.append(out)
+
+        if items_out:
+            days_out.append({"label": str(day.get("label") or ""), "items": items_out})
+
+    if not days_out:
+        return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
+
+    state["itinerary"] = {"title": title, "mode": mode, "days": days_out}
+    return {
+        "status": "ok",
+        "message": "日程表を登録しました。画面にタイムライン表示されるため、本文は要約とホテル案内のみ簡潔に。",
+    }
+
+
 async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     state["tool_called"] = True
     if name == "search_hotels":
@@ -395,6 +531,8 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
         return await _run_search_spots(args)
     if name == "search_spots_nearby":
         return await _run_search_nearby(args)
+    if name == "create_itinerary":
+        return await _run_create_itinerary(args, state)
     return {"error": f"未知のツール: {name}"}
 
 
@@ -420,6 +558,7 @@ async def chat_with_gemini(
             "text": "申し訳ありませんが、現在チャット機能は利用できません。GCP プロジェクト設定が不足しています。",
             "hotels": [],
             "search_context": None,
+            "itinerary": None,
         }
 
     message = user_message
@@ -435,12 +574,19 @@ async def chat_with_gemini(
     # 一過性の失敗なので、会話を最初からやり直す形でリトライする。
     last_error: Optional[Exception] = None
     for _attempt in range(2):
-        state: Dict[str, Any] = {"hotels": [], "search_context": None, "tool_called": False}
+        state: Dict[str, Any] = {
+            "hotels": [],
+            "search_context": None,
+            "itinerary": None,
+            "tool_called": False,
+        }
         attempt_message = message
         if _attempt > 0:
             notes = ["必ず日本語で回答してください"]
             if user_location and "散歩" in user_message:
-                notes.append("必ず search_spots_nearby を呼び、その結果の mapUrl をリンクに使ってください")
+                notes.append(
+                    "必ず search_spots_nearby を呼び、その結果から create_itinerary(mode=walk) で日程表を登録してください"
+                )
             attempt_message = f"{message}\n（重要: {'。'.join(notes)}）"
         try:
             chat = model.start_chat(history=_build_history(conversation_history))
@@ -452,7 +598,7 @@ async def chat_with_gemini(
                     break
                 response_parts = []
                 for call in calls:
-                    args = {key: value for key, value in call.args.items()} if call.args else {}
+                    args = _to_plain(call.args) if call.args else {}
                     result = await _execute_tool(call.name, args, state)
                     response_parts.append(
                         Part.from_function_response(name=call.name, response={"content": result})
@@ -461,25 +607,39 @@ async def chat_with_gemini(
 
             text = _clean_response_text(_extract_text(response))
             if not text:
-                text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
+                # 本文が空でも日程表やホテルが取れていれば成果はあるので、
+                # エラー風の文言ではなく案内文にする
+                if state["itinerary"] or state["hotels"]:
+                    text = "プランをまとめました！下の日程表"
+                    if state["hotels"]:
+                        text += "とホテルカード（『楽天トラベルで予約』ボタンつき）"
+                    text += "をご覧ください。"
+                else:
+                    text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
 
             if _attempt == 0 and _looks_non_japanese(text):
                 last_error = Exception("応答が日本語になりませんでした")
                 continue
 
-            # 散歩モード（現在地つきで「散歩」を依頼）なのに、ツール未使用または
-            # ツール結果の mapUrl リンクを本文に使っていない場合はやり直す
-            # （ツールを呼ばず知識でスポットを創作する／リンクを省くのが flash-lite の頻出失敗）
+            # 散歩モード（現在地つきで「散歩」を依頼）なのに、日程表も地図リンクも
+            # 生成されなかった場合はやり直す
+            # （ツールを呼ばず知識でスポットを創作するのが flash-lite の頻出失敗）
             if (
                 _attempt == 0
                 and user_location
                 and "散歩" in user_message
+                and not state["itinerary"]
                 and "google.com/maps" not in text
             ):
-                last_error = Exception("散歩モードで地図リンクが生成されませんでした")
+                last_error = Exception("散歩モードで日程表が生成されませんでした")
                 continue
 
-            return {"text": text, "hotels": state["hotels"], "search_context": state["search_context"]}
+            return {
+                "text": text,
+                "hotels": state["hotels"],
+                "search_context": state["search_context"],
+                "itinerary": state["itinerary"],
+            }
 
         except Exception as e:
             last_error = e
@@ -489,6 +649,7 @@ async def chat_with_gemini(
         "text": f"申し訳ありませんが、エラーが発生しました: {str(last_error)}",
         "hotels": [],
         "search_context": None,
+        "itinerary": None,
     }
 
 

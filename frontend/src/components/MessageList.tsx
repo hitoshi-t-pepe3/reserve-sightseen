@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { Message } from "@/types/chat";
 import { MessageBubble } from "./MessageBubble";
 import { HotelCard } from "./HotelCard";
+import { ItineraryTimeline } from "./ItineraryTimeline";
 import { buildReserveUrl } from "@/lib/api";
 
 interface MessageListProps {
@@ -31,6 +32,8 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       {messages.map((message) => (
         <div key={message.id} className="w-full">
           <MessageBubble message={message} />
+          {/* 日程表（create_itinerary の結果）をタイムライン表示 */}
+          {message.itinerary && <ItineraryTimeline itinerary={message.itinerary} />}
           {/* チャット中に検索されたホテルをカードで表示（予約導線つき） */}
           {message.hotels && message.hotels.length > 0 && (
             <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4">

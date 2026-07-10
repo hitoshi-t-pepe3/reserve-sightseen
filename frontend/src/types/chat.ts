@@ -1,4 +1,4 @@
-import { HotelBasicInfo, SearchContext } from "@/lib/api";
+import { HotelBasicInfo, SearchContext, Itinerary } from "@/lib/api";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -12,6 +12,8 @@ export interface Message {
   hotels?: HotelBasicInfo[];
   // ホテル検索時の条件（予約URLの日付・人数プリセットに使う）
   searchContext?: SearchContext;
+  // create_itinerary ツールで生成された日程表（タイムライン表示）
+  itinerary?: Itinerary;
 }
 
 export interface ChatRequest {

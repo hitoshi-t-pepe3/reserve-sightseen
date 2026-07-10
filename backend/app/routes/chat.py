@@ -38,6 +38,8 @@ class ChatResponse(BaseModel):
     # フロントはこれをカード表示し、予約導線につなげる。
     hotels: List[dict] = []
     search_context: Optional[SearchContext] = None
+    # create_itinerary ツールで登録された日程表。フロントがタイムラインUIで表示する
+    itinerary: Optional[dict] = None
 
 
 @router.post("", response_model=ChatResponse)
@@ -55,6 +57,7 @@ async def chat(request: ChatRequest):
             response=result["text"],
             hotels=result["hotels"],
             search_context=result["search_context"],
+            itinerary=result.get("itinerary"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
