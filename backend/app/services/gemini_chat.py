@@ -565,17 +565,25 @@ async def chat_with_gemini(
 
     message = user_message
     if user_location and "lat" in user_location and "lng" in user_location:
+        walk_note = ""
+        if "散歩" in user_message:
+            walk_note = (
+                "散歩の依頼なので、必ず search_spots_nearby でスポットを検索し、"
+                "その結果から create_itinerary(mode=walk) で日程表を登録すること。"
+            )
         message = (
             f"[システム情報: ユーザーの現在地は lat={user_location['lat']}, lng={user_location['lng']} です。"
-            "周辺検索にはこの座標を使うこと。回答は日本語で。]\n"
+            f"周辺検索にはこの座標を使うこと。{walk_note}回答は日本語で。]\n"
             f"{user_message}"
         )
 
     # flash-lite はまれに壊れた function call を出力する
-    # （SDK が ResponseValidationError / "Finish reason: 9" で失敗する）。
-    # 一過性の失敗なので、会話を最初からやり直す形でリトライする。
+    # （SDK が ResponseValidationError / "Finish reason: 9" で失敗する）ほか、
+    # 指示を無視して英語で答えたり日程表登録を省いたりする。
+    # いずれも一過性の失敗なので、会話を最初からやり直す形で最大3回試行する。
+    _max_attempts = 3
     last_error: Optional[Exception] = None
-    for _attempt in range(2):
+    for _attempt in range(_max_attempts):
         state: Dict[str, Any] = {
             "hotels": [],
             "search_context": None,
@@ -619,14 +627,21 @@ async def chat_with_gemini(
                 else:
                     text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
 
-            if _attempt == 0 and _looks_non_japanese(text):
+            is_last_attempt = _attempt == _max_attempts - 1
+
+            if not is_last_attempt and _looks_non_japanese(text):
                 last_error = Exception("応答が日本語になりませんでした")
                 continue
 
             # 散歩モード（現在地つきで「散歩」を依頼）なのに日程表が登録されなかった
             # 場合はやり直す（ツールを呼ばず知識で書く／日程表登録を省くのが
-            # flash-lite の頻出失敗。2回目も失敗したらそのまま返す）
-            if _attempt == 0 and user_location and "散歩" in user_message and not state["itinerary"]:
+            # flash-lite の頻出失敗。最終試行まで失敗したらそのまま返す）
+            if (
+                not is_last_attempt
+                and user_location
+                and "散歩" in user_message
+                and not state["itinerary"]
+            ):
                 last_error = Exception("散歩モードで日程表が生成されませんでした")
                 continue
 
