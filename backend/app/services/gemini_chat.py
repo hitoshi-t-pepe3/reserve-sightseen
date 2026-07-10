@@ -35,6 +35,7 @@ def _system_instruction() -> str:
 今日は {today} です。「来週末」「明日」などの相対的な日付は、この日付を基準に YYYY-MM-DD 形式へ変換してください。過去の日付が指定されたら翌年ではなく、日付の確認をしてください。
 
 ## 絶対のルール（違反禁止）
+- 回答は必ず日本語で書きます。英語で回答してはいけません（ユーザーが他言語を希望した場合のみ例外）。
 - ホテル名・料金を回答に書いてよいのは、search_hotels の結果を受け取った後だけです。ツールを呼ばずに知識からホテルを提案することは禁止です。
 - 観光地を提案する前に必ず search_tourist_spots（現在地周辺なら search_spots_nearby）を呼びます。
 - 行き先・宿泊日・人数が揃ったら、文章を書き始める前にまずツールを呼び出してください。これは会話が何往復目でも同じです。
@@ -214,6 +215,23 @@ _BR_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
 def _clean_response_text(text: str) -> str:
     text = _BR_TAG.sub("\n", text)
     return _WEEKDAY_AFTER_DATE.sub(r"\1", text)
+
+
+_MD_URL = re.compile(r"\]\([^)]*\)")
+_JA_CHARS = re.compile(r"[ぁ-んァ-ヶ一-龠]")
+
+
+def _looks_non_japanese(text: str) -> bool:
+    """応答が日本語になっていないか判定する。
+
+    flash-lite は指示があってもまれに英語で回答する。日本語の地名を含む英語文でも
+    かな・漢字の比率が明確に下がるため、比率で機械判定してリトライにつなげる。
+    """
+    body = _MD_URL.sub("]", text)  # URL 内のエンコード文字列はノイズなので除外
+    if len(body) < 80:
+        return False  # 短い相づち等は誤判定しやすいので対象外
+    ratio = len(_JA_CHARS.findall(body)) / len(body)
+    return ratio < 0.15
 
 
 def _compact_hotels(hotels: List[dict]) -> List[dict]:
@@ -403,8 +421,6 @@ async def chat_with_gemini(
             "search_context": None,
         }
 
-    state: Dict[str, Any] = {"hotels": [], "search_context": None}
-
     message = user_message
     if user_location and "lat" in user_location and "lng" in user_location:
         message = (
@@ -413,35 +429,51 @@ async def chat_with_gemini(
             f"{user_message}"
         )
 
-    try:
-        chat = model.start_chat(history=_build_history(conversation_history))
-        response = await chat.send_message_async(message)
+    # flash-lite はまれに壊れた function call を出力する
+    # （SDK が ResponseValidationError / "Finish reason: 9" で失敗する）。
+    # 一過性の失敗なので、会話を最初からやり直す形でリトライする。
+    last_error: Optional[Exception] = None
+    for _attempt in range(2):
+        state: Dict[str, Any] = {"hotels": [], "search_context": None}
+        attempt_message = message
+        if _attempt > 0:
+            attempt_message = f"{message}\n（重要: 必ず日本語で回答してください）"
+        try:
+            chat = model.start_chat(history=_build_history(conversation_history))
+            response = await chat.send_message_async(attempt_message)
 
-        for _ in range(_MAX_TOOL_TURNS):
-            calls = _extract_function_calls(response)
-            if not calls:
-                break
-            response_parts = []
-            for call in calls:
-                args = {key: value for key, value in call.args.items()} if call.args else {}
-                result = await _execute_tool(call.name, args, state)
-                response_parts.append(
-                    Part.from_function_response(name=call.name, response={"content": result})
-                )
-            response = await chat.send_message_async(response_parts)
+            for _ in range(_MAX_TOOL_TURNS):
+                calls = _extract_function_calls(response)
+                if not calls:
+                    break
+                response_parts = []
+                for call in calls:
+                    args = {key: value for key, value in call.args.items()} if call.args else {}
+                    result = await _execute_tool(call.name, args, state)
+                    response_parts.append(
+                        Part.from_function_response(name=call.name, response={"content": result})
+                    )
+                response = await chat.send_message_async(response_parts)
 
-        text = _clean_response_text(_extract_text(response))
-        if not text:
-            text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
+            text = _clean_response_text(_extract_text(response))
+            if not text:
+                text = "申し訳ありません、応答を生成できませんでした。もう一度お試しください。"
 
-        return {"text": text, "hotels": state["hotels"], "search_context": state["search_context"]}
+            if _attempt == 0 and _looks_non_japanese(text):
+                last_error = Exception("応答が日本語になりませんでした")
+                continue
 
-    except Exception as e:
-        return {
-            "text": f"申し訳ありませんが、エラーが発生しました: {str(e)}",
-            "hotels": [],
-            "search_context": None,
-        }
+            return {"text": text, "hotels": state["hotels"], "search_context": state["search_context"]}
+
+        except Exception as e:
+            last_error = e
+            continue
+
+    return {
+        "text": f"申し訳ありませんが、エラーが発生しました: {str(last_error)}",
+        "hotels": [],
+        "search_context": None,
+    }
 
 
 async def stream_chat_with_gemini(

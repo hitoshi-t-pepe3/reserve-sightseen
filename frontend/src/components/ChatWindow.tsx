@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Message } from "@/types/chat";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
@@ -105,6 +105,20 @@ export function ChatWindow() {
       { enableHighAccuracy: false, timeout: 10000 }
     );
   }, [sendMessage]);
+
+  // PWA ショートカット（ホーム画面アイコン長押し）からの起動:
+  // /?mode=walk → 散歩モード、/?mode=hotel → 宿泊検索パネル
+  const shortcutHandled = useRef(false);
+  useEffect(() => {
+    if (shortcutHandled.current) return;
+    shortcutHandled.current = true;
+    const mode = new URLSearchParams(window.location.search).get("mode");
+    if (mode === "walk") {
+      startWalkMode();
+    } else if (mode === "hotel") {
+      setShowHotelSearch(true);
+    }
+  }, [startWalkMode]);
 
   // Welcome message on first load
   useEffect(() => {
