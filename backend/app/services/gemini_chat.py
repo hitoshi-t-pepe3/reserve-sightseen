@@ -388,6 +388,7 @@ async def _run_search_nearby(args: Dict[str, Any]) -> dict:
 
 
 async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) -> dict:
+    state["tool_called"] = True
     if name == "search_hotels":
         return await _run_search_hotels(args, state)
     if name == "search_tourist_spots":
@@ -434,10 +435,13 @@ async def chat_with_gemini(
     # 一過性の失敗なので、会話を最初からやり直す形でリトライする。
     last_error: Optional[Exception] = None
     for _attempt in range(2):
-        state: Dict[str, Any] = {"hotels": [], "search_context": None}
+        state: Dict[str, Any] = {"hotels": [], "search_context": None, "tool_called": False}
         attempt_message = message
         if _attempt > 0:
-            attempt_message = f"{message}\n（重要: 必ず日本語で回答してください）"
+            notes = ["必ず日本語で回答してください"]
+            if user_location and "散歩" in user_message:
+                notes.append("必ず search_spots_nearby を呼び、その結果の mapUrl をリンクに使ってください")
+            attempt_message = f"{message}\n（重要: {'。'.join(notes)}）"
         try:
             chat = model.start_chat(history=_build_history(conversation_history))
             response = await chat.send_message_async(attempt_message)
@@ -461,6 +465,18 @@ async def chat_with_gemini(
 
             if _attempt == 0 and _looks_non_japanese(text):
                 last_error = Exception("応答が日本語になりませんでした")
+                continue
+
+            # 散歩モード（現在地つきで「散歩」を依頼）なのに、ツール未使用または
+            # ツール結果の mapUrl リンクを本文に使っていない場合はやり直す
+            # （ツールを呼ばず知識でスポットを創作する／リンクを省くのが flash-lite の頻出失敗）
+            if (
+                _attempt == 0
+                and user_location
+                and "散歩" in user_message
+                and "google.com/maps" not in text
+            ):
+                last_error = Exception("散歩モードで地図リンクが生成されませんでした")
                 continue
 
             return {"text": text, "hotels": state["hotels"], "search_context": state["search_context"]}
