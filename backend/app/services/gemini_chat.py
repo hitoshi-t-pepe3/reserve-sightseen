@@ -469,7 +469,8 @@ def _dir_url(origin: str, dest: str, walking: bool) -> str:
 
 
 async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
-    title = str(args.get("title") or "プラン").strip()
+    # タイトル・日ラベルにも誤った曜日が混入するため本文と同じ除去を通す
+    title = _clean_response_text(str(args.get("title") or "プラン")).strip()
     mode = args.get("mode") if args.get("mode") in ("walk", "travel") else "travel"
     walking = mode == "walk"
 
@@ -511,7 +512,8 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
             items_out.append(out)
 
         if items_out:
-            days_out.append({"label": str(day.get("label") or ""), "items": items_out})
+            label = _clean_response_text(str(day.get("label") or "")).strip()
+            days_out.append({"label": label, "items": items_out})
 
     if not days_out:
         return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
@@ -621,16 +623,10 @@ async def chat_with_gemini(
                 last_error = Exception("応答が日本語になりませんでした")
                 continue
 
-            # 散歩モード（現在地つきで「散歩」を依頼）なのに、日程表も地図リンクも
-            # 生成されなかった場合はやり直す
-            # （ツールを呼ばず知識でスポットを創作するのが flash-lite の頻出失敗）
-            if (
-                _attempt == 0
-                and user_location
-                and "散歩" in user_message
-                and not state["itinerary"]
-                and "google.com/maps" not in text
-            ):
+            # 散歩モード（現在地つきで「散歩」を依頼）なのに日程表が登録されなかった
+            # 場合はやり直す（ツールを呼ばず知識で書く／日程表登録を省くのが
+            # flash-lite の頻出失敗。2回目も失敗したらそのまま返す）
+            if _attempt == 0 and user_location and "散歩" in user_message and not state["itinerary"]:
                 last_error = Exception("散歩モードで日程表が生成されませんでした")
                 continue
 
