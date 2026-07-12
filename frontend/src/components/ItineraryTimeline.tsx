@@ -164,6 +164,16 @@ export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryT
                               {navLabel}
                             </a>
                           )}
+                          {item.prevNavUrl && (
+                            <a
+                              href={item.prevNavUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-teal-700 underline hover:text-teal-900"
+                            >
+                              前の地点から経路
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>

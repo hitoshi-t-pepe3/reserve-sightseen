@@ -78,13 +78,22 @@ export function buildManualItem(
             ? "transit"
             : undefined;
 
-  let navUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}`;
+  const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}`;
+  const items = itinerary.days[dayIndex]?.items ?? [];
+  const prev = [...items].reverse().find((i) => i.category !== "move");
+
+  let navUrl = base;
+  // 散歩・ドライブでの「直前の地点から」の経路（現在地からのリンクと併記される）
+  let prevNavUrl: string | undefined;
   if (itinerary.mode === "travel") {
-    const items = itinerary.days[dayIndex]?.items ?? [];
-    const prev = [...items].reverse().find((i) => i.category !== "move");
     if (prev) navUrl += `&origin=${encodeURIComponent(prev.name)}`;
+  } else if (prev) {
+    prevNavUrl = `${base}&origin=${encodeURIComponent(prev.name)}`;
   }
-  if (travelmode) navUrl += `&travelmode=${travelmode}`;
+  if (travelmode) {
+    navUrl += `&travelmode=${travelmode}`;
+    if (prevNavUrl) prevNavUrl += `&travelmode=${travelmode}`;
+  }
 
   return {
     time: time?.trim() || null,
@@ -94,5 +103,6 @@ export function buildManualItem(
     durationMin: null,
     mapUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
     navUrl,
+    ...(prevNavUrl ? { prevNavUrl } : {}),
   };
 }

@@ -132,6 +132,8 @@ export interface ItineraryItem {
   mapUrl?: string;
   // Google マップ経路リンク。散歩・ドライブは現在地起点、旅行プランは直前の地点起点
   navUrl?: string;
+  // 散歩・ドライブでの「直前の地点から」の経路リンク（2箇所目以降）
+  prevNavUrl?: string;
 }
 
 export interface ItineraryDay {

@@ -527,7 +527,10 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
             }
             if category != "move":
                 if from_current:
+                    # 散歩・ドライブは「現在地から」と「前の地点から」の両方を出す
                     out["navUrl"] = _dir_url(None, query, travelmode)
+                    if prev_query:
+                        out["prevNavUrl"] = _dir_url(prev_query, query, travelmode)
                 elif prev_query:
                     out["navUrl"] = _dir_url(prev_query, query, travelmode)
                 prev_query = query
