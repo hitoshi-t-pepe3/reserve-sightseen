@@ -64,7 +64,7 @@ def _system_instruction() -> str:
 
 ## 移動手段
 - ユーザーが旅行の移動手段（電車・バス・車・飛行機）を指定・希望したら、create_itinerary の transport に渡してください（電車=train, バス=bus, 車=car, 飛行機=plane）。経路リンクの種類がそれに合わせて切り替わります。
-- 飛行機の場合は、空港への移動・搭乗を category=move の項目として行程に入れてください。
+- 電車・バス・飛行機の場合は、往路・復路の乗車を category=move の項目として必ず行程に入れてください（例: name=「東京駅発 新幹線（新大阪行き）」time=09:00、name=「バスタ新宿発 高速バス（大阪行き）」time=08:00）。move 項目は「ツール結果のみ」の制約の対象外で、一般知識にもとづく目安でよい（description に「時刻は目安です」と添える。実在しない具体的な便名は書かない）。
 
 ## スポットの地図リンク
 ツール結果の各スポットには mapUrl が付いています。スポットを紹介するときは必ず [スポット名](mapUrl) の形式でリンクにしてください。URLを自作してはいけません。
@@ -467,6 +467,29 @@ def _to_plain(value: Any) -> Any:
         return value
 
 
+def _rakuten_affiliate_url(target: str) -> str:
+    """楽天の任意ページをアフィリエイトリンク化する（ID未設定なら素のURL）"""
+    aff = settings.rakuten_affiliate_id
+    if not aff:
+        return target
+    encoded = quote(target, safe="")
+    return f"https://hb.afl.rakuten.co.jp/hgc/{aff}/?pc={encoded}&m={encoded}"
+
+
+# 移動手段ごとのチケット予約導線（楽天トラベルは高速バス・楽パックも
+# アフィリエイト成果対象のため、既存の RAKUTEN_AFFILIATE_ID をそのまま使う）
+_BOOKING_LINKS = {
+    "bus": {
+        "label": "🚌 楽天トラベルで高速バスを予約",
+        "target": "https://travel.rakuten.co.jp/bus/",
+    },
+    "plane": {
+        "label": "✈️ 航空券＋宿セット（楽パック）を探す",
+        "target": "https://travel.rakuten.co.jp/package/",
+    },
+}
+
+
 def _dir_url(origin: Optional[str], dest: str, travelmode: Optional[str]) -> str:
     """Google マップ経路リンク。origin を省略すると端末の現在地が起点になる"""
     url = f"https://www.google.com/maps/dir/?api=1&destination={quote(dest)}"
@@ -543,7 +566,18 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
     if not days_out:
         return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
 
-    state["itinerary"] = {"title": title, "mode": mode, "transport": transport, "days": days_out}
+    booking = None
+    link = _BOOKING_LINKS.get(transport or "") if mode == "travel" else None
+    if link:
+        booking = {"label": link["label"], "url": _rakuten_affiliate_url(link["target"])}
+
+    state["itinerary"] = {
+        "title": title,
+        "mode": mode,
+        "transport": transport,
+        "booking": booking,
+        "days": days_out,
+    }
     return {
         "status": "ok",
         "message": "日程表を登録しました。画面にタイムライン表示されるため、本文は要約とホテル案内のみ簡潔に。",
@@ -614,9 +648,12 @@ async def chat_with_gemini(
                 f"その結果から create_itinerary(mode={nearby_mode}) で日程表を登録すること。"
             )
     if transport in _TRANSPORT_LABELS:
+        ride_note = ""
+        if transport != "car":
+            ride_note = f"乗る{_TRANSPORT_LABELS[transport]}の便・目安時刻を category=move の項目として行程に入れること。"
         sys_notes.append(
             f"ユーザーの移動手段の希望は{_TRANSPORT_LABELS[transport]}です。"
-            f"create_itinerary を呼ぶときは transport='{transport}' を渡すこと。"
+            f"create_itinerary を呼ぶときは transport='{transport}' を渡すこと。{ride_note}"
         )
     if sys_notes:
         message = f"[システム情報: {''.join(sys_notes)}回答は日本語で。]\n{user_message}"
@@ -640,6 +677,10 @@ async def chat_with_gemini(
             if user_location and nearby_mode:
                 notes.append(
                     f"必ず search_spots_nearby を呼び、その結果から create_itinerary(mode={nearby_mode}) で日程表を登録してください"
+                )
+            if transport in ("train", "bus", "plane"):
+                notes.append(
+                    f"往路・復路の{_TRANSPORT_LABELS[transport]}の乗車を category=move の項目として必ず日程表に入れてください"
                 )
             attempt_message = f"{message}\n（重要: {'。'.join(notes)}）"
         try:
@@ -687,6 +728,21 @@ async def chat_with_gemini(
                 and not state["itinerary"]
             ):
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
+                continue
+
+            # 移動手段（電車・バス・飛行機）指定なのに乗車の行程（move）が
+            # 入らないのも flash-lite の頻出失敗。日程表があってもやり直す
+            if (
+                not is_last_attempt
+                and transport in ("train", "bus", "plane")
+                and state["itinerary"]
+                and not any(
+                    item["category"] == "move"
+                    for day in state["itinerary"]["days"]
+                    for item in day["items"]
+                )
+            ):
+                last_error = Exception("移動手段指定なのに乗車の行程が入りませんでした")
                 continue
 
             return {

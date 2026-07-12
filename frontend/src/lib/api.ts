@@ -148,6 +148,8 @@ export interface Itinerary {
   mode: 'walk' | 'drive' | 'travel';
   // 旅行の主な移動手段（経路リンクの種類に反映される）
   transport?: Transport | null;
+  // チケット予約導線（バス=楽天トラベル高速バス、飛行機=楽パック。アフィリエイトリンク）
+  booking?: { label: string; url: string } | null;
   days: ItineraryDay[];
 }
 

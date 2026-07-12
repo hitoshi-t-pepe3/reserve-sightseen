@@ -232,6 +232,20 @@ export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryT
             ))}
         </div>
       ))}
+
+      {/* チケット予約導線（バス=楽天トラベル高速バス、飛行機=楽パック） */}
+      {itinerary.booking && (
+        <div className="px-4 pb-4">
+          <a
+            href={itinerary.booking.url}
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+            className="block text-center px-4 py-2.5 bg-[#bf0000] hover:bg-[#a50000] text-white rounded-xl text-sm font-medium transition-colors"
+          >
+            {itinerary.booking.label}
+          </a>
+        </div>
+      )}
     </div>
   );
 }
