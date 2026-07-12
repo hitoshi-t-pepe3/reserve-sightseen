@@ -8,9 +8,9 @@ import {
   loadPlans,
   deletePlan,
   updatePlan,
-  buildManualItem,
-  relinkItem,
-  nextSpotIndex,
+  withAddedItem,
+  withEditedItem,
+  withDeletedItem,
 } from "@/lib/planStorage";
 
 const MODE_BADGES: Record<string, string> = {
@@ -42,11 +42,7 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   };
 
   const handleAddItem = (plan: SavedPlan, dayIndex: number, name: string, time?: string) => {
-    const itinerary = structuredClone(plan.itinerary);
-    const day = itinerary.days[dayIndex];
-    if (!day) return;
-    day.items.push(buildManualItem(name, time, itinerary, dayIndex));
-    setPlans(updatePlan(plan.id, itinerary));
+    setPlans(updatePlan(plan.id, withAddedItem(plan.itinerary, dayIndex, name, time)));
   };
 
   const handleEditItem = (
@@ -56,36 +52,14 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
     name: string,
     time?: string
   ) => {
-    const itinerary = structuredClone(plan.itinerary);
-    const item = itinerary.days[dayIndex]?.items[itemIndex];
-    if (!item) return;
-    const nameChanged = item.name !== name;
-    item.name = name;
-    item.time = time || null;
-    if (nameChanged) {
-      // 自身と、自分を起点にしている次のスポットの経路リンクを組み直す
-      relinkItem(itinerary, dayIndex, itemIndex);
-      const next = nextSpotIndex(itinerary.days[dayIndex].items, itemIndex + 1);
-      if (next >= 0) relinkItem(itinerary, dayIndex, next);
-    }
-    setPlans(updatePlan(plan.id, itinerary));
+    setPlans(updatePlan(plan.id, withEditedItem(plan.itinerary, dayIndex, itemIndex, name, time)));
   };
 
   const handleDeleteItem = (plan: SavedPlan, dayIndex: number, itemIndex: number) => {
-    const itinerary = structuredClone(plan.itinerary);
-    const items = itinerary.days[dayIndex]?.items;
-    if (!items || !items[itemIndex]) return;
-    if (!confirm(`「${items[itemIndex].name}」を行程から削除しますか？`)) return;
-    const wasSpot = items[itemIndex].category !== "move";
-    items.splice(itemIndex, 1);
-    if (wasSpot) {
-      // 削除した地点を起点にしていた次のスポットの経路リンクを組み直す
-      const next = nextSpotIndex(items, itemIndex);
-      if (next >= 0) relinkItem(itinerary, dayIndex, next);
-    }
-    // 日が空になったら日ごと削除（バックエンドは空の日を許さないため表示も揃える）
-    itinerary.days = itinerary.days.filter((d) => d.items.length > 0);
-    setPlans(updatePlan(plan.id, itinerary));
+    const item = plan.itinerary.days[dayIndex]?.items[itemIndex];
+    if (!item) return;
+    if (!confirm(`「${item.name}」を行程から削除しますか？`)) return;
+    setPlans(updatePlan(plan.id, withDeletedItem(plan.itinerary, dayIndex, itemIndex)));
   };
 
   return (

@@ -133,3 +133,59 @@ export function nextSpotIndex(items: ItineraryItem[], fromIndex: number): number
   }
   return -1;
 }
+
+// ---- 日程表のイミュータブルな編集ヘルパー（新しいコピーを返す） ----
+// チャット内の日程表と保存プラン画面の両方から使う
+
+export function withAddedItem(
+  itinerary: Itinerary,
+  dayIndex: number,
+  name: string,
+  time?: string
+): Itinerary {
+  const next = structuredClone(itinerary);
+  next.days[dayIndex]?.items.push(buildManualItem(name, time, next, dayIndex));
+  return next;
+}
+
+export function withEditedItem(
+  itinerary: Itinerary,
+  dayIndex: number,
+  itemIndex: number,
+  name: string,
+  time?: string
+): Itinerary {
+  const next = structuredClone(itinerary);
+  const item = next.days[dayIndex]?.items[itemIndex];
+  if (!item) return next;
+  const nameChanged = item.name !== name;
+  item.name = name;
+  item.time = time || null;
+  if (nameChanged) {
+    // 自身と、自分を起点にしている次のスポットの経路リンクを組み直す
+    relinkItem(next, dayIndex, itemIndex);
+    const after = nextSpotIndex(next.days[dayIndex].items, itemIndex + 1);
+    if (after >= 0) relinkItem(next, dayIndex, after);
+  }
+  return next;
+}
+
+export function withDeletedItem(
+  itinerary: Itinerary,
+  dayIndex: number,
+  itemIndex: number
+): Itinerary {
+  const next = structuredClone(itinerary);
+  const items = next.days[dayIndex]?.items;
+  if (!items || !items[itemIndex]) return next;
+  const wasSpot = items[itemIndex].category !== "move";
+  items.splice(itemIndex, 1);
+  if (wasSpot) {
+    // 削除した地点を起点にしていた次のスポットの経路リンクを組み直す
+    const after = nextSpotIndex(items, itemIndex);
+    if (after >= 0) relinkItem(next, dayIndex, after);
+  }
+  // 日の行程が空になったら日ごと削除（バックエンドは空の日を許さないため表示も揃える）
+  next.days = next.days.filter((d) => d.items.length > 0);
+  return next;
+}

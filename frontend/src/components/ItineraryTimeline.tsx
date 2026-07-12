@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { Itinerary, ItineraryItem } from "@/lib/api";
-import { savePlan } from "@/lib/planStorage";
+import {
+  savePlan,
+  updatePlan,
+  loadPlans,
+  withAddedItem,
+  withEditedItem,
+  withDeletedItem,
+} from "@/lib/planStorage";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
   spot: { icon: "🏛️", label: "観光" },
@@ -26,7 +33,8 @@ const TRANSPORT_LABELS: Record<string, string> = {
 
 interface ItineraryTimelineProps {
   itinerary: Itinerary;
-  // チャット内の表示で保存ボタンを出す（localStorage に最大10件）
+  // チャット内の表示で保存ボタンを出す（localStorage に最大10件）。
+  // このモードでは追加・編集・削除も内蔵し、ローカル状態に反映して保存する
   saveable?: boolean;
   // 保存プラン画面で目的地を手動追加する
   onAddItem?: (dayIndex: number, name: string, time?: string) => void;
@@ -50,17 +58,31 @@ export function ItineraryTimeline({
   const [addingDay, setAddingDay] = useState<number | null>(null);
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("");
-  // 編集中の行程（保存プラン画面のみ）。キーは `${dayIndex}-${itemIndex}`
+  // 編集中の行程。キーは `${dayIndex}-${itemIndex}`
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editTime, setEditTime] = useState("");
+  // チャット内（saveable）での編集結果。保存前でも画面に反映する
+  const [localItinerary, setLocalItinerary] = useState<Itinerary | null>(null);
+  // 保存済みプランのID。以降の編集は再保存で同じプランを更新する
+  const [savedId, setSavedId] = useState<string | null>(null);
+
+  const view = localItinerary ?? itinerary;
 
   const toggle = (key: string) =>
     setVisited((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const handleSave = () => {
-    const result = savePlan(itinerary);
+    // 一度保存済みなら、同じプランを上書き更新する（パネル側で削除済みなら新規保存に戻る）
+    if (savedId && loadPlans().some((p) => p.id === savedId)) {
+      updatePlan(savedId, view);
+      setSaveState("saved");
+      setSaveError(null);
+      return;
+    }
+    const result = savePlan(view);
     if (result.ok) {
+      setSavedId(result.plans[0].id);
       setSaveState("saved");
       setSaveError(null);
     } else {
@@ -69,10 +91,38 @@ export function ItineraryTimeline({
     }
   };
 
+  // チャット内編集: ローカル状態を更新し、保存済み表示なら「保存」に戻して再保存を促す
+  const applyLocal = (next: Itinerary) => {
+    setLocalItinerary(next);
+    if (saveState === "saved") setSaveState("idle");
+  };
+
+  const addHandler =
+    onAddItem ??
+    (saveable
+      ? (di: number, name: string, time?: string) => applyLocal(withAddedItem(view, di, name, time))
+      : undefined);
+  const editHandler =
+    onEditItem ??
+    (saveable
+      ? (di: number, ii: number, name: string, time?: string) =>
+          applyLocal(withEditedItem(view, di, ii, name, time))
+      : undefined);
+  const deleteHandler =
+    onDeleteItem ??
+    (saveable
+      ? (di: number, ii: number) => {
+          const item = view.days[di]?.items[ii];
+          if (!item) return;
+          if (!confirm(`「${item.name}」を行程から削除しますか？`)) return;
+          applyLocal(withDeletedItem(view, di, ii));
+        }
+      : undefined);
+
   const submitAddItem = (dayIndex: number) => {
     const name = newName.trim();
-    if (!name || !onAddItem) return;
-    onAddItem(dayIndex, name, newTime.trim() || undefined);
+    if (!name || !addHandler) return;
+    addHandler(dayIndex, name, newTime.trim() || undefined);
     setNewName("");
     setNewTime("");
     setAddingDay(null);
@@ -86,14 +136,14 @@ export function ItineraryTimeline({
 
   const submitEdit = (dayIndex: number, itemIndex: number) => {
     const name = editName.trim();
-    if (!name || !onEditItem) return;
-    onEditItem(dayIndex, itemIndex, name, editTime.trim() || undefined);
+    if (!name || !editHandler) return;
+    editHandler(dayIndex, itemIndex, name, editTime.trim() || undefined);
     setEditingKey(null);
   };
 
   // 散歩・ドライブは現在地起点の経路リンク、旅行は直前の地点起点
   const navLabel =
-    itinerary.mode === "walk" || itinerary.mode === "drive"
+    view.mode === "walk" || view.mode === "drive"
       ? "現在地から経路"
       : "前の地点から経路";
 
@@ -102,12 +152,12 @@ export function ItineraryTimeline({
       <div className="bg-blue-600 text-white px-4 py-3 flex items-start justify-between gap-2">
         <div>
           <p className="text-xs opacity-80">
-            {MODE_LABELS[itinerary.mode] ?? "旅行プラン"}
-            {itinerary.mode === "travel" && itinerary.transport
-              ? `（${TRANSPORT_LABELS[itinerary.transport] ?? itinerary.transport}）`
+            {MODE_LABELS[view.mode] ?? "旅行プラン"}
+            {view.mode === "travel" && view.transport
+              ? `（${TRANSPORT_LABELS[view.transport] ?? view.transport}）`
               : ""}
           </p>
-          <h3 className="font-semibold">{itinerary.title}</h3>
+          <h3 className="font-semibold">{view.title}</h3>
         </div>
         {saveable && (
           <button
@@ -125,10 +175,10 @@ export function ItineraryTimeline({
         </p>
       )}
 
-      {itinerary.days.map((day, di) => (
+      {view.days.map((day, di) => (
         <div key={di} className="px-4 py-3">
           {/* 1日だけの散歩・ドライブコースはヘッダーと重複するのでラベルを出さない */}
-          {day.label && !(itinerary.days.length === 1 && itinerary.mode !== "travel") && (
+          {day.label && !(view.days.length === 1 && view.mode !== "travel") && (
             <p className="text-sm font-semibold text-blue-700 mb-2">{day.label}</p>
           )}
           <ol className="relative border-l-2 border-blue-100 ml-3 space-y-4">
@@ -153,7 +203,7 @@ export function ItineraryTimeline({
                         className="mt-1 w-4 h-4 accent-green-600 shrink-0"
                         aria-label={`${item.name} を訪問済みにする`}
                       />
-                      {editingKey === key && onEditItem ? (
+                      {editingKey === key && editHandler ? (
                         <div className="flex flex-wrap items-center gap-2 flex-1">
                           <input
                             type="text"
@@ -236,9 +286,9 @@ export function ItineraryTimeline({
                           )}
                         </div>
                       </div>
-                      {(onEditItem || onDeleteItem) && (
+                      {(editHandler || deleteHandler) && (
                         <div className="flex gap-1 shrink-0">
-                          {onEditItem && (
+                          {editHandler && (
                             <button
                               onClick={() => startEdit(key, item)}
                               className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-sm"
@@ -247,9 +297,9 @@ export function ItineraryTimeline({
                               ✏️
                             </button>
                           )}
-                          {onDeleteItem && (
+                          {deleteHandler && (
                             <button
-                              onClick={() => onDeleteItem(di, ii)}
+                              onClick={() => deleteHandler(di, ii)}
                               className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-sm"
                               aria-label={`${item.name} を削除`}
                             >
@@ -267,8 +317,8 @@ export function ItineraryTimeline({
             })}
           </ol>
 
-          {/* 保存プラン画面での目的地の手動追加 */}
-          {onAddItem &&
+          {/* 目的地の手動追加（チャット内・保存プラン画面の両方） */}
+          {addHandler &&
             (addingDay === di ? (
               <div className="mt-3 ml-3 flex flex-wrap items-center gap-2">
                 <input
@@ -318,15 +368,15 @@ export function ItineraryTimeline({
       ))}
 
       {/* チケット予約導線（バス=楽天トラベル高速バス、飛行機=楽パック） */}
-      {itinerary.booking && (
+      {view.booking && (
         <div className="px-4 pb-4">
           <a
-            href={itinerary.booking.url}
+            href={view.booking.url}
             target="_blank"
             rel="noopener noreferrer sponsored"
             className="block text-center px-4 py-2.5 bg-[#bf0000] hover:bg-[#a50000] text-white rounded-xl text-sm font-medium transition-colors"
           >
-            {itinerary.booking.label}
+            {view.booking.label}
           </a>
         </div>
       )}
