@@ -57,16 +57,14 @@ export function updatePlan(id: string, itinerary: Itinerary): SavedPlan[] {
   return next;
 }
 
-// 手動追加スポットの地図・経路リンクを、バックエンドと同じ形式で組み立てる。
-// 散歩・ドライブは現在地起点（origin 省略で端末の現在地になる）、
-// 旅行はその日の直前のスポット起点。
-export function buildManualItem(
+// スポット名から地図・経路リンクを、バックエンドと同じ形式で組み立てる。
+// 散歩・ドライブは現在地起点（origin 省略で端末の現在地になる）+ 直前スポット起点の併記、
+// 旅行は直前スポット起点のみ。
+function buildLinks(
   name: string,
-  time: string | undefined,
   itinerary: Itinerary,
-  dayIndex: number
-): ItineraryItem {
-  const query = name.trim();
+  prevName?: string
+): Pick<ItineraryItem, "mapUrl" | "navUrl" | "prevNavUrl"> {
   const travelmode =
     itinerary.mode === "walk"
       ? "walking"
@@ -78,31 +76,60 @@ export function buildManualItem(
             ? "transit"
             : undefined;
 
-  const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}`;
+  const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(name)}`;
+  const suffix = travelmode ? `&travelmode=${travelmode}` : "";
+  const fromPrev = prevName
+    ? `${base}&origin=${encodeURIComponent(prevName)}${suffix}`
+    : undefined;
+
+  return {
+    mapUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`,
+    ...(itinerary.mode === "travel"
+      ? { navUrl: fromPrev, prevNavUrl: undefined }
+      : { navUrl: `${base}${suffix}`, prevNavUrl: fromPrev }),
+  };
+}
+
+function prevSpotName(items: ItineraryItem[], beforeIndex: number): string | undefined {
+  return items
+    .slice(0, beforeIndex)
+    .reverse()
+    .find((i) => i.category !== "move")?.name;
+}
+
+// 手動追加スポットを組み立てる（その日の末尾に追加される想定）
+export function buildManualItem(
+  name: string,
+  time: string | undefined,
+  itinerary: Itinerary,
+  dayIndex: number
+): ItineraryItem {
+  const query = name.trim();
   const items = itinerary.days[dayIndex]?.items ?? [];
-  const prev = [...items].reverse().find((i) => i.category !== "move");
-
-  let navUrl = base;
-  // 散歩・ドライブでの「直前の地点から」の経路（現在地からのリンクと併記される）
-  let prevNavUrl: string | undefined;
-  if (itinerary.mode === "travel") {
-    if (prev) navUrl += `&origin=${encodeURIComponent(prev.name)}`;
-  } else if (prev) {
-    prevNavUrl = `${base}&origin=${encodeURIComponent(prev.name)}`;
-  }
-  if (travelmode) {
-    navUrl += `&travelmode=${travelmode}`;
-    if (prevNavUrl) prevNavUrl += `&travelmode=${travelmode}`;
-  }
-
   return {
     time: time?.trim() || null,
     name: query,
     category: "spot",
     description: null,
     durationMin: null,
-    mapUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
-    navUrl,
-    ...(prevNavUrl ? { prevNavUrl } : {}),
+    ...buildLinks(query, itinerary, prevSpotName(items, items.length)),
   };
+}
+
+// 指定項目の経路リンクを現在の並びに合わせて組み直す。
+// 項目の削除・名前変更のあと、その項目自身と「次のスポット」（起点が変わる）に使う。
+// 注: 組み直したリンクは住所なしのスポット名だけで検索される（バックエンド生成時より粗い）。
+export function relinkItem(itinerary: Itinerary, dayIndex: number, itemIndex: number) {
+  const items = itinerary.days[dayIndex]?.items ?? [];
+  const item = items[itemIndex];
+  if (!item || item.category === "move") return;
+  Object.assign(item, buildLinks(item.name, itinerary, prevSpotName(items, itemIndex)));
+}
+
+// itemIndex 以降で最初のスポット（move 以外）の位置。なければ -1
+export function nextSpotIndex(items: ItineraryItem[], fromIndex: number): number {
+  for (let i = fromIndex; i < items.length; i++) {
+    if (items[i].category !== "move") return i;
+  }
+  return -1;
 }

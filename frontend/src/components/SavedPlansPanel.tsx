@@ -9,6 +9,8 @@ import {
   deletePlan,
   updatePlan,
   buildManualItem,
+  relinkItem,
+  nextSpotIndex,
 } from "@/lib/planStorage";
 
 const MODE_BADGES: Record<string, string> = {
@@ -44,6 +46,45 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
     const day = itinerary.days[dayIndex];
     if (!day) return;
     day.items.push(buildManualItem(name, time, itinerary, dayIndex));
+    setPlans(updatePlan(plan.id, itinerary));
+  };
+
+  const handleEditItem = (
+    plan: SavedPlan,
+    dayIndex: number,
+    itemIndex: number,
+    name: string,
+    time?: string
+  ) => {
+    const itinerary = structuredClone(plan.itinerary);
+    const item = itinerary.days[dayIndex]?.items[itemIndex];
+    if (!item) return;
+    const nameChanged = item.name !== name;
+    item.name = name;
+    item.time = time || null;
+    if (nameChanged) {
+      // 自身と、自分を起点にしている次のスポットの経路リンクを組み直す
+      relinkItem(itinerary, dayIndex, itemIndex);
+      const next = nextSpotIndex(itinerary.days[dayIndex].items, itemIndex + 1);
+      if (next >= 0) relinkItem(itinerary, dayIndex, next);
+    }
+    setPlans(updatePlan(plan.id, itinerary));
+  };
+
+  const handleDeleteItem = (plan: SavedPlan, dayIndex: number, itemIndex: number) => {
+    const itinerary = structuredClone(plan.itinerary);
+    const items = itinerary.days[dayIndex]?.items;
+    if (!items || !items[itemIndex]) return;
+    if (!confirm(`「${items[itemIndex].name}」を行程から削除しますか？`)) return;
+    const wasSpot = items[itemIndex].category !== "move";
+    items.splice(itemIndex, 1);
+    if (wasSpot) {
+      // 削除した地点を起点にしていた次のスポットの経路リンクを組み直す
+      const next = nextSpotIndex(items, itemIndex);
+      if (next >= 0) relinkItem(itinerary, dayIndex, next);
+    }
+    // 日が空になったら日ごと削除（バックエンドは空の日を許さないため表示も揃える）
+    itinerary.days = itinerary.days.filter((d) => d.items.length > 0);
     setPlans(updatePlan(plan.id, itinerary));
   };
 
@@ -109,6 +150,10 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                   <ItineraryTimeline
                     itinerary={plan.itinerary}
                     onAddItem={(dayIndex, name, time) => handleAddItem(plan, dayIndex, name, time)}
+                    onEditItem={(dayIndex, itemIndex, name, time) =>
+                      handleEditItem(plan, dayIndex, itemIndex, name, time)
+                    }
+                    onDeleteItem={(dayIndex, itemIndex) => handleDeleteItem(plan, dayIndex, itemIndex)}
                   />
                 </div>
               )}

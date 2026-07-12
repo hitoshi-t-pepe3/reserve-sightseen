@@ -30,17 +30,30 @@ interface ItineraryTimelineProps {
   saveable?: boolean;
   // 保存プラン画面で目的地を手動追加する
   onAddItem?: (dayIndex: number, name: string, time?: string) => void;
+  // 保存プラン画面で行程を編集・削除する
+  onEditItem?: (dayIndex: number, itemIndex: number, name: string, time?: string) => void;
+  onDeleteItem?: (dayIndex: number, itemIndex: number) => void;
 }
 
 // 日程表のタイムライン表示。
 // チェックで「回った場所」を消し込みながらたどれる（状態はこのメッセージ内のみ）。
-export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryTimelineProps) {
+export function ItineraryTimeline({
+  itinerary,
+  saveable,
+  onAddItem,
+  onEditItem,
+  onDeleteItem,
+}: ItineraryTimelineProps) {
   const [visited, setVisited] = useState<Record<string, boolean>>({});
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [addingDay, setAddingDay] = useState<number | null>(null);
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("");
+  // 編集中の行程（保存プラン画面のみ）。キーは `${dayIndex}-${itemIndex}`
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editTime, setEditTime] = useState("");
 
   const toggle = (key: string) =>
     setVisited((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -63,6 +76,19 @@ export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryT
     setNewName("");
     setNewTime("");
     setAddingDay(null);
+  };
+
+  const startEdit = (key: string, item: ItineraryItem) => {
+    setEditingKey(key);
+    setEditName(item.name);
+    setEditTime(item.time ?? "");
+  };
+
+  const submitEdit = (dayIndex: number, itemIndex: number) => {
+    const name = editName.trim();
+    if (!name || !onEditItem) return;
+    onEditItem(dayIndex, itemIndex, name, editTime.trim() || undefined);
+    setEditingKey(null);
   };
 
   // 散歩・ドライブは現在地起点の経路リンク、旅行は直前の地点起点
@@ -127,6 +153,40 @@ export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryT
                         className="mt-1 w-4 h-4 accent-green-600 shrink-0"
                         aria-label={`${item.name} を訪問済みにする`}
                       />
+                      {editingKey === key && onEditItem ? (
+                        <div className="flex flex-wrap items-center gap-2 flex-1">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && submitEdit(di, ii)}
+                            className="flex-1 min-w-[10rem] px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                            autoFocus
+                          />
+                          <input
+                            type="text"
+                            value={editTime}
+                            onChange={(e) => setEditTime(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && submitEdit(di, ii)}
+                            placeholder="時刻(任意)"
+                            className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                          />
+                          <button
+                            onClick={() => submitEdit(di, ii)}
+                            disabled={!editName.trim()}
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={() => setEditingKey(null)}
+                            className="px-2 py-1.5 text-gray-500 text-sm"
+                          >
+                            キャンセル
+                          </button>
+                        </div>
+                      ) : (
+                      <>
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm ${done ? "line-through" : ""}`}>
                           {item.time && (
@@ -176,6 +236,30 @@ export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryT
                           )}
                         </div>
                       </div>
+                      {(onEditItem || onDeleteItem) && (
+                        <div className="flex gap-1 shrink-0">
+                          {onEditItem && (
+                            <button
+                              onClick={() => startEdit(key, item)}
+                              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-sm"
+                              aria-label={`${item.name} を編集`}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                          {onDeleteItem && (
+                            <button
+                              onClick={() => onDeleteItem(di, ii)}
+                              className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-sm"
+                              aria-label={`${item.name} を削除`}
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      </>
+                      )}
                     </div>
                   </div>
                 </li>
