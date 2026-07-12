@@ -130,7 +130,7 @@ export interface ItineraryItem {
   description?: string | null;
   durationMin?: number | null;
   mapUrl?: string;
-  // 直前の地点からの Google マップ経路リンク（散歩コースは徒歩モード）
+  // Google マップ経路リンク。散歩コースは現在地起点（徒歩）、旅行プランは直前の地点起点
   navUrl?: string;
 }
 

@@ -457,12 +457,11 @@ def _to_plain(value: Any) -> Any:
         return value
 
 
-def _dir_url(origin: str, dest: str, walking: bool) -> str:
-    """2地点間の Google マップ経路リンク（散歩コースは徒歩モード指定）"""
-    url = (
-        "https://www.google.com/maps/dir/?api=1"
-        f"&origin={quote(origin)}&destination={quote(dest)}"
-    )
+def _dir_url(origin: Optional[str], dest: str, walking: bool) -> str:
+    """Google マップ経路リンク。origin を省略すると端末の現在地が起点になる"""
+    url = f"https://www.google.com/maps/dir/?api=1&destination={quote(dest)}"
+    if origin:
+        url += f"&origin={quote(origin)}"
     if walking:
         url += "&travelmode=walking"
     return url
@@ -506,7 +505,11 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
                 "mapUrl": _map_url(name, address),
             }
             if category != "move":
-                if prev_query:
+                if walking:
+                    # 散歩は歩くたびに位置が変わるので、全スポットとも
+                    # クリック時点の現在地を起点にする（origin 省略）
+                    out["navUrl"] = _dir_url(None, query, walking)
+                elif prev_query:
                     out["navUrl"] = _dir_url(prev_query, query, walking)
                 prev_query = query
             items_out.append(out)

@@ -91,7 +91,7 @@ export function ItineraryTimeline({ itinerary }: ItineraryTimelineProps) {
                               rel="noopener noreferrer"
                               className="text-xs text-green-700 underline hover:text-green-900"
                             >
-                              前の地点から経路
+                              {itinerary.mode === "walk" ? "現在地から経路" : "前の地点から経路"}
                             </a>
                           )}
                         </div>
