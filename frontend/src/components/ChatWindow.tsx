@@ -5,7 +5,8 @@ import { Message } from "@/types/chat";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { HotelSearchPanel } from "./HotelSearchPanel";
-import { sendChatMessage, HotelBasicInfo, SearchContext } from "@/lib/api";
+import { SavedPlansPanel } from "./SavedPlansPanel";
+import { sendChatMessage, HotelBasicInfo, SearchContext, Transport } from "@/lib/api";
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -25,16 +26,34 @@ const THEMES = [
   { label: "♨️ 温泉", starter: "温泉宿でゆっくりする旅がしたい" },
 ];
 
+// 旅行プランの移動手段チップ。選ぶと以降のチャットに希望として渡り、
+// 日程表の経路リンクの種類（transit/driving）に反映される
+const TRANSPORTS: { value: Transport; label: string }[] = [
+  { value: "train", label: "🚄 電車" },
+  { value: "bus", label: "🚌 バス" },
+  { value: "car", label: "🚗 車" },
+  { value: "plane", label: "✈️ 飛行機" },
+];
+
+// 現在地起点コースの種類ごとの依頼文（散歩=徒歩 / ドライブ=車）
+const NEARBY_STARTERS = {
+  walk: "いまいる場所の周辺で、歩いて回れる散歩プランを作って",
+  drive: "いまいる場所の周辺で、車で回れるドライブプランを作って",
+} as const;
+
 export function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHotelSearch, setShowHotelSearch] = useState(false);
+  const [showSavedPlans, setShowSavedPlans] = useState(false);
   // 直近のチャット検索条件。手動ホテル検索パネルの初期値・予約URLに引き継ぐ。
   const [searchContext, setSearchContext] = useState<SearchContext>({});
-  // 位置情報の許可を一度得たら、以降のメッセージにも現在地を添える（散歩モードの続きの会話用）
+  // 位置情報の許可を一度得たら、以降のメッセージにも現在地を添える（散歩・ドライブモードの続きの会話用）
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  // 旅行の移動手段の希望。選択中は毎メッセージでバックエンドに渡る
+  const [transport, setTransport] = useState<Transport | null>(null);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -56,7 +75,7 @@ export function ChatWindow() {
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const data = await sendChatMessage(content, conversationHistory, locationOverride ?? userLocation);
+      const data = await sendChatMessage(content, conversationHistory, locationOverride ?? userLocation, transport);
 
       // API のホテル構造 {hotelBasicInfo, hotelRatingInfo} をカード用にフラット化
       const hotels: HotelBasicInfo[] = (data.hotels || [])
@@ -83,10 +102,10 @@ export function ChatWindow() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, userLocation]);
+  }, [messages, userLocation, transport]);
 
-  // 散歩モード: 位置情報の許可を取り、現在地つきで散歩プランを依頼する
-  const startWalkMode = useCallback(() => {
+  // 散歩・ドライブモード: 位置情報の許可を取り、現在地つきでコースを依頼する
+  const startNearbyMode = useCallback((kind: keyof typeof NEARBY_STARTERS) => {
     if (!navigator.geolocation) {
       setError("この端末では位置情報を利用できません");
       return;
@@ -97,7 +116,7 @@ export function ChatWindow() {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setUserLocation(loc);
         setLocating(false);
-        sendMessage("いまいる場所の周辺で、歩いて回れる散歩プランを作って", loc);
+        sendMessage(NEARBY_STARTERS[kind], loc);
       },
       () => {
         setLocating(false);
@@ -114,12 +133,12 @@ export function ChatWindow() {
     if (shortcutHandled.current) return;
     shortcutHandled.current = true;
     const mode = new URLSearchParams(window.location.search).get("mode");
-    if (mode === "walk") {
-      startWalkMode();
+    if (mode === "walk" || mode === "drive") {
+      startNearbyMode(mode);
     } else if (mode === "hotel") {
       setShowHotelSearch(true);
     }
-  }, [startWalkMode]);
+  }, [startNearbyMode]);
 
   // Welcome message on first load
   useEffect(() => {
@@ -128,7 +147,7 @@ export function ChatWindow() {
         id: generateId(),
         role: "assistant",
         content:
-          "こんにちは！旅行プランのお手伝いをします。\n\n「行き先」「日付」「人数」を教えていただくと、実際のホテルの空室・料金と観光スポットを調べて、予約までできるプランを提案します。\n\n行き先は都市名のほか、駅名・コンサート会場・観光地などでもOK。下のボタンから「いまから散歩」や趣味のテーマも選べます。",
+          "こんにちは！旅行プランのお手伝いをします。\n\n「行き先」「日付」「人数」を教えていただくと、実際のホテルの空室・料金と観光スポットを調べて、予約までできるプランを提案します。\n\n行き先は都市名のほか、駅名・コンサート会場・観光地などでもOK。下のボタンから「いまから散歩・ドライブ」や趣味のテーマも選べます。気に入ったプランは日程表の「💾 保存」で10件まで保存できます。",
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
@@ -171,12 +190,20 @@ export function ChatWindow() {
             <p className="text-xs text-gray-500">AI 旅行プランナー</p>
           </div>
         </div>
-        <button
-          onClick={() => setShowHotelSearch(true)}
-          className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
-        >
-          🏨 宿泊検索
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowSavedPlans(true)}
+            className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+          >
+            📚 保存プラン
+          </button>
+          <button
+            onClick={() => setShowHotelSearch(true)}
+            className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+          >
+            🏨 宿泊検索
+          </button>
+        </div>
       </header>
 
       {/* Messages */}
@@ -187,11 +214,18 @@ export function ChatWindow() {
         <div className="px-4 pb-2 space-y-2">
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={startWalkMode}
+              onClick={() => startNearbyMode("walk")}
               disabled={locating}
               className="px-3 py-2 bg-green-600 text-white rounded-full text-sm hover:bg-green-700 disabled:opacity-60 transition-colors font-medium"
             >
               {locating ? "現在地を取得中..." : "📍 いまから散歩プラン"}
+            </button>
+            <button
+              onClick={() => startNearbyMode("drive")}
+              disabled={locating}
+              className="px-3 py-2 bg-teal-600 text-white rounded-full text-sm hover:bg-teal-700 disabled:opacity-60 transition-colors font-medium"
+            >
+              {locating ? "現在地を取得中..." : "🚗 いまからドライブ"}
             </button>
             {THEMES.map((theme) => (
               <button
@@ -226,8 +260,37 @@ export function ChatWindow() {
 
       {/* Input */}
       <div className="border-t border-gray-200 px-4 py-3 bg-white sticky bottom-0">
+        {/* 旅行の移動手段チップ（もう一度押すと解除） */}
+        <div className="flex items-center gap-1.5 mb-2 overflow-x-auto">
+          <span className="text-xs text-gray-500 shrink-0">移動手段:</span>
+          {TRANSPORTS.map((t) => (
+            <button
+              key={t.value}
+              onClick={() => setTransport((cur) => (cur === t.value ? null : t.value))}
+              className={`px-2.5 py-1 rounded-full text-xs shrink-0 border transition-colors ${
+                transport === t.value
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <span className="text-xs text-gray-400 shrink-0">
+            {transport ? "（プランに反映されます）" : "（任意）"}
+          </span>
+        </div>
         <MessageInput onSend={sendMessage} disabled={isLoading} />
       </div>
+
+      {/* Saved Plans Panel */}
+      {showSavedPlans && (
+        <div className="absolute inset-0 z-40 pointer-events-none">
+          <div className="absolute bottom-0 left-0 right-0 pointer-events-auto max-h-[80vh]">
+            <SavedPlansPanel isOpen={showSavedPlans} onClose={() => setShowSavedPlans(false)} />
+          </div>
+        </div>
+      )}
 
       {/* Hotel Search Panel */}
       {showHotelSearch && (

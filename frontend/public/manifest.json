@@ -36,6 +36,13 @@
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     },
     {
+      "name": "いまからドライブ",
+      "short_name": "ドライブ",
+      "description": "現在地の周辺で車で回れるコースを作る",
+      "url": "/?mode=drive",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
       "name": "宿泊検索",
       "short_name": "宿検索",
       "description": "エリアと日付でホテルを検索",

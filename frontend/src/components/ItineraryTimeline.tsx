@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Itinerary, ItineraryItem } from "@/lib/api";
+import { savePlan } from "@/lib/planStorage";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
   spot: { icon: "🏛️", label: "観光" },
@@ -10,29 +11,98 @@ const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: st
   move: { icon: "🚶", label: "移動" },
 };
 
+const MODE_LABELS: Record<Itinerary["mode"], string> = {
+  walk: "散歩コース",
+  drive: "ドライブコース",
+  travel: "旅行プラン",
+};
+
+const TRANSPORT_LABELS: Record<string, string> = {
+  train: "🚄 電車",
+  bus: "🚌 バス",
+  car: "🚗 車",
+  plane: "✈️ 飛行機",
+};
+
 interface ItineraryTimelineProps {
   itinerary: Itinerary;
+  // チャット内の表示で保存ボタンを出す（localStorage に最大10件）
+  saveable?: boolean;
+  // 保存プラン画面で目的地を手動追加する
+  onAddItem?: (dayIndex: number, name: string, time?: string) => void;
 }
 
 // 日程表のタイムライン表示。
 // チェックで「回った場所」を消し込みながらたどれる（状態はこのメッセージ内のみ）。
-export function ItineraryTimeline({ itinerary }: ItineraryTimelineProps) {
+export function ItineraryTimeline({ itinerary, saveable, onAddItem }: ItineraryTimelineProps) {
   const [visited, setVisited] = useState<Record<string, boolean>>({});
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [addingDay, setAddingDay] = useState<number | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newTime, setNewTime] = useState("");
 
   const toggle = (key: string) =>
     setVisited((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  const handleSave = () => {
+    const result = savePlan(itinerary);
+    if (result.ok) {
+      setSaveState("saved");
+      setSaveError(null);
+    } else {
+      setSaveState("error");
+      setSaveError(result.reason);
+    }
+  };
+
+  const submitAddItem = (dayIndex: number) => {
+    const name = newName.trim();
+    if (!name || !onAddItem) return;
+    onAddItem(dayIndex, name, newTime.trim() || undefined);
+    setNewName("");
+    setNewTime("");
+    setAddingDay(null);
+  };
+
+  // 散歩・ドライブは現在地起点の経路リンク、旅行は直前の地点起点
+  const navLabel =
+    itinerary.mode === "walk" || itinerary.mode === "drive"
+      ? "現在地から経路"
+      : "前の地点から経路";
+
   return (
     <div className="mb-4 bg-white border border-blue-200 rounded-2xl overflow-hidden shadow-sm">
-      <div className="bg-blue-600 text-white px-4 py-3">
-        <p className="text-xs opacity-80">{itinerary.mode === "walk" ? "散歩コース" : "旅行プラン"}</p>
-        <h3 className="font-semibold">{itinerary.title}</h3>
+      <div className="bg-blue-600 text-white px-4 py-3 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs opacity-80">
+            {MODE_LABELS[itinerary.mode] ?? "旅行プラン"}
+            {itinerary.mode === "travel" && itinerary.transport
+              ? `（${TRANSPORT_LABELS[itinerary.transport] ?? itinerary.transport}）`
+              : ""}
+          </p>
+          <h3 className="font-semibold">{itinerary.title}</h3>
+        </div>
+        {saveable && (
+          <button
+            onClick={handleSave}
+            disabled={saveState === "saved"}
+            className="shrink-0 px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
+          >
+            {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
+          </button>
+        )}
       </div>
+      {saveError && (
+        <p className="px-4 py-2 bg-amber-50 text-amber-800 text-xs border-b border-amber-200">
+          {saveError}
+        </p>
+      )}
 
       {itinerary.days.map((day, di) => (
         <div key={di} className="px-4 py-3">
-          {/* 1日だけの散歩コースはヘッダーと重複するのでラベルを出さない */}
-          {day.label && !(itinerary.days.length === 1 && itinerary.mode === "walk") && (
+          {/* 1日だけの散歩・ドライブコースはヘッダーと重複するのでラベルを出さない */}
+          {day.label && !(itinerary.days.length === 1 && itinerary.mode !== "travel") && (
             <p className="text-sm font-semibold text-blue-700 mb-2">{day.label}</p>
           )}
           <ol className="relative border-l-2 border-blue-100 ml-3 space-y-4">
@@ -91,7 +161,7 @@ export function ItineraryTimeline({ itinerary }: ItineraryTimelineProps) {
                               rel="noopener noreferrer"
                               className="text-xs text-green-700 underline hover:text-green-900"
                             >
-                              {itinerary.mode === "walk" ? "現在地から経路" : "前の地点から経路"}
+                              {navLabel}
                             </a>
                           )}
                         </div>
@@ -102,6 +172,54 @@ export function ItineraryTimeline({ itinerary }: ItineraryTimelineProps) {
               );
             })}
           </ol>
+
+          {/* 保存プラン画面での目的地の手動追加 */}
+          {onAddItem &&
+            (addingDay === di ? (
+              <div className="mt-3 ml-3 flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitAddItem(di)}
+                  placeholder="スポット名（例: 清水寺）"
+                  className="flex-1 min-w-[10rem] px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitAddItem(di)}
+                  placeholder="時刻(任意)"
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                />
+                <button
+                  onClick={() => submitAddItem(di)}
+                  disabled={!newName.trim()}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
+                >
+                  追加
+                </button>
+                <button
+                  onClick={() => setAddingDay(null)}
+                  className="px-2 py-1.5 text-gray-500 text-sm"
+                >
+                  キャンセル
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setAddingDay(di);
+                  setNewName("");
+                  setNewTime("");
+                }}
+                className="mt-3 ml-3 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors"
+              >
+                ＋ 目的地を追加
+              </button>
+            ))}
         </div>
       ))}
     </div>

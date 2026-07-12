@@ -21,8 +21,10 @@ class ChatRequest(BaseModel):
     message: str
     conversation_history: Optional[List[dict]] = []
     system_prompt: Optional[str] = None  # 互換のため受けるが、サーバー側の指示を常に使用
-    # ブラウザの位置情報（散歩モード等）。付与されるとチャットが周辺検索に使える
+    # ブラウザの位置情報（散歩・ドライブモード等）。付与されるとチャットが周辺検索に使える
     user_location: Optional[UserLocation] = None
+    # 旅行の移動手段の希望（train/bus/car/plane）。UIの選択チップから渡る
+    transport: Optional[str] = None
 
 
 class SearchContext(BaseModel):
@@ -52,6 +54,7 @@ async def chat(request: ChatRequest):
             user_message=request.message,
             conversation_history=request.conversation_history,
             user_location=request.user_location.model_dump() if request.user_location else None,
+            transport=request.transport,
         )
         return ChatResponse(
             response=result["text"],

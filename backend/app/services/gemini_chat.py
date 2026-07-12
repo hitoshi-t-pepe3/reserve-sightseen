@@ -60,6 +60,11 @@ def _system_instruction() -> str:
 - **聖地巡礼**: 作品名を確認し、search_tourist_spots の query に「作品名 聖地」を渡して検索。結果が乏しければ舞台になった土地名で再検索し、巡礼順のモデルコースにする。
 - **温泉**: search_hotels の onsen=true を使い、温泉宿だけに絞る。
 - **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+- **ドライブ**（現在地あり・車で回りたい）: search_spots_nearby を radius_m=15000 程度で呼び、車で半日〜1日で回れる3〜6箇所を選んで create_itinerary（mode=drive、days は1要素）でドライブコースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+
+## 移動手段
+- ユーザーが旅行の移動手段（電車・バス・車・飛行機）を指定・希望したら、create_itinerary の transport に渡してください（電車=train, バス=bus, 車=car, 飛行機=plane）。経路リンクの種類がそれに合わせて切り替わります。
+- 飛行機の場合は、空港への移動・搭乗を category=move の項目として行程に入れてください。
 
 ## スポットの地図リンク
 ツール結果の各スポットには mapUrl が付いています。スポットを紹介するときは必ず [スポット名](mapUrl) の形式でリンクにしてください。URLを自作してはいけません。
@@ -136,7 +141,7 @@ _SEARCH_NEARBY_DECL = FunctionDeclaration(
             },
             "radius_m": {
                 "type": "integer",
-                "description": "検索半径メートル（徒歩想定。デフォルト1500、最大3000）",
+                "description": "検索半径メートル。徒歩（散歩）は1500程度、車（ドライブ）は10000〜20000。デフォルト1500、最大20000",
             },
         },
         "required": ["lat", "lng"],
@@ -156,8 +161,13 @@ _CREATE_ITINERARY_DECL = FunctionDeclaration(
             "title": {"type": "string", "description": "プラン名（例: 京都1泊2日 歴史とグルメの旅）"},
             "mode": {
                 "type": "string",
-                "enum": ["walk", "travel"],
-                "description": "walk=徒歩の散歩コース, travel=旅行プラン",
+                "enum": ["walk", "drive", "travel"],
+                "description": "walk=徒歩の散歩コース, drive=車で回るドライブコース, travel=旅行プラン",
+            },
+            "transport": {
+                "type": "string",
+                "enum": ["train", "bus", "car", "plane"],
+                "description": "travel モードの主な移動手段。ユーザーが指定・希望したら必ず渡す",
             },
             "days": {
                 "type": "array",
@@ -427,7 +437,7 @@ async def _run_search_nearby(args: Dict[str, Any]) -> dict:
 
     category = args.get("category") or "sightseeing"
     try:
-        radius = min(int(args.get("radius_m") or 1500), 3000)
+        radius = min(int(args.get("radius_m") or 1500), 20000)
     except (TypeError, ValueError):
         radius = 1500
 
@@ -457,21 +467,32 @@ def _to_plain(value: Any) -> Any:
         return value
 
 
-def _dir_url(origin: Optional[str], dest: str, walking: bool) -> str:
+def _dir_url(origin: Optional[str], dest: str, travelmode: Optional[str]) -> str:
     """Google マップ経路リンク。origin を省略すると端末の現在地が起点になる"""
     url = f"https://www.google.com/maps/dir/?api=1&destination={quote(dest)}"
     if origin:
         url += f"&origin={quote(origin)}"
-    if walking:
-        url += "&travelmode=walking"
+    if travelmode:
+        url += f"&travelmode={travelmode}"
     return url
 
 
 async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     # タイトル・日ラベルにも誤った曜日が混入するため本文と同じ除去を通す
     title = _clean_response_text(str(args.get("title") or "プラン")).strip()
-    mode = args.get("mode") if args.get("mode") in ("walk", "travel") else "travel"
-    walking = mode == "walk"
+    mode = args.get("mode") if args.get("mode") in ("walk", "drive", "travel") else "travel"
+    transport = args.get("transport") if args.get("transport") in ("train", "bus", "car", "plane") else None
+
+    # 経路リンクの移動手段。散歩=徒歩・ドライブ=車。旅行は指定に応じて
+    # 電車/バス=transit・車=driving（飛行機は Google マップ非対応のため transit で代用）
+    if mode == "walk":
+        travelmode = "walking"
+    elif mode == "drive":
+        travelmode = "driving"
+    else:
+        travelmode = {"train": "transit", "bus": "transit", "car": "driving", "plane": "transit"}.get(transport)
+    # 散歩・ドライブは移動のたびに位置が変わるので、経路の起点は常にクリック時の現在地
+    from_current = mode in ("walk", "drive")
 
     days_out = []
     for day in args.get("days") or []:
@@ -505,12 +526,10 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
                 "mapUrl": _map_url(name, address),
             }
             if category != "move":
-                if walking:
-                    # 散歩は歩くたびに位置が変わるので、全スポットとも
-                    # クリック時点の現在地を起点にする（origin 省略）
-                    out["navUrl"] = _dir_url(None, query, walking)
+                if from_current:
+                    out["navUrl"] = _dir_url(None, query, travelmode)
                 elif prev_query:
-                    out["navUrl"] = _dir_url(prev_query, query, walking)
+                    out["navUrl"] = _dir_url(prev_query, query, travelmode)
                 prev_query = query
             items_out.append(out)
 
@@ -521,7 +540,7 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
     if not days_out:
         return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
 
-    state["itinerary"] = {"title": title, "mode": mode, "days": days_out}
+    state["itinerary"] = {"title": title, "mode": mode, "transport": transport, "days": days_out}
     return {
         "status": "ok",
         "message": "日程表を登録しました。画面にタイムライン表示されるため、本文は要約とホテル案内のみ簡潔に。",
@@ -541,18 +560,23 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
     return {"error": f"未知のツール: {name}"}
 
 
+_TRANSPORT_LABELS = {"train": "電車", "bus": "バス", "car": "車", "plane": "飛行機"}
+
+
 async def chat_with_gemini(
     user_message: str,
     conversation_history: List[Dict[str, str]] = None,
     system_prompt: str = None,  # 互換のため残置（サーバー側の指示を常に使用）
     user_location: Optional[Dict[str, float]] = None,
+    transport: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Chat with Gemini model via Vertex AI, with travel tools (function calling).
 
     Args:
-        user_location: {"lat": float, "lng": float}。散歩モード等で
+        user_location: {"lat": float, "lng": float}。散歩・ドライブモード等で
             search_spots_nearby に渡すため、メッセージ冒頭に付与する。
+        transport: 旅行の移動手段の希望（train/bus/car/plane）。UIの選択チップから渡る。
 
     Returns:
         {"text": str, "hotels": list[dict], "search_context": dict | None}
@@ -567,18 +591,32 @@ async def chat_with_gemini(
         }
 
     message = user_message
+    sys_notes = []
+    # 現在地つきの周辺コース依頼（散歩=徒歩 / ドライブ=車）。日程表の必須チェックにも使う
+    nearby_mode = None
     if user_location and "lat" in user_location and "lng" in user_location:
-        walk_note = ""
         if "散歩" in user_message:
-            walk_note = (
-                "散歩の依頼なので、必ず search_spots_nearby でスポットを検索し、"
-                "その結果から create_itinerary(mode=walk) で日程表を登録すること。"
-            )
-        message = (
-            f"[システム情報: ユーザーの現在地は lat={user_location['lat']}, lng={user_location['lng']} です。"
-            f"周辺検索にはこの座標を使うこと。{walk_note}回答は日本語で。]\n"
-            f"{user_message}"
+            nearby_mode = "walk"
+        elif "ドライブ" in user_message:
+            nearby_mode = "drive"
+        sys_notes.append(
+            f"ユーザーの現在地は lat={user_location['lat']}, lng={user_location['lng']} です。"
+            "周辺検索にはこの座標を使うこと。"
         )
+        if nearby_mode:
+            label = "散歩" if nearby_mode == "walk" else "ドライブ"
+            radius_hint = "radius_m=15000 程度で" if nearby_mode == "drive" else ""
+            sys_notes.append(
+                f"{label}の依頼なので、必ず search_spots_nearby を{radius_hint}呼び、"
+                f"その結果から create_itinerary(mode={nearby_mode}) で日程表を登録すること。"
+            )
+    if transport in _TRANSPORT_LABELS:
+        sys_notes.append(
+            f"ユーザーの移動手段の希望は{_TRANSPORT_LABELS[transport]}です。"
+            f"create_itinerary を呼ぶときは transport='{transport}' を渡すこと。"
+        )
+    if sys_notes:
+        message = f"[システム情報: {''.join(sys_notes)}回答は日本語で。]\n{user_message}"
 
     # flash-lite はまれに壊れた function call を出力する
     # （SDK が ResponseValidationError / "Finish reason: 9" で失敗する）ほか、
@@ -596,9 +634,9 @@ async def chat_with_gemini(
         attempt_message = message
         if _attempt > 0:
             notes = ["必ず日本語で回答してください"]
-            if user_location and "散歩" in user_message:
+            if user_location and nearby_mode:
                 notes.append(
-                    "必ず search_spots_nearby を呼び、その結果から create_itinerary(mode=walk) で日程表を登録してください"
+                    f"必ず search_spots_nearby を呼び、その結果から create_itinerary(mode={nearby_mode}) で日程表を登録してください"
                 )
             attempt_message = f"{message}\n（重要: {'。'.join(notes)}）"
         try:
@@ -636,16 +674,16 @@ async def chat_with_gemini(
                 last_error = Exception("応答が日本語になりませんでした")
                 continue
 
-            # 散歩モード（現在地つきで「散歩」を依頼）なのに日程表が登録されなかった
+            # 散歩・ドライブモード（現在地つきの依頼）なのに日程表が登録されなかった
             # 場合はやり直す（ツールを呼ばず知識で書く／日程表登録を省くのが
             # flash-lite の頻出失敗。最終試行まで失敗したらそのまま返す）
             if (
                 not is_last_attempt
                 and user_location
-                and "散歩" in user_message
+                and nearby_mode
                 and not state["itinerary"]
             ):
-                last_error = Exception("散歩モードで日程表が生成されませんでした")
+                last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
                 continue
 
             return {

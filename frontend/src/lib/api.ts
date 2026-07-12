@@ -130,7 +130,7 @@ export interface ItineraryItem {
   description?: string | null;
   durationMin?: number | null;
   mapUrl?: string;
-  // Google マップ経路リンク。散歩コースは現在地起点（徒歩）、旅行プランは直前の地点起点
+  // Google マップ経路リンク。散歩・ドライブは現在地起点、旅行プランは直前の地点起点
   navUrl?: string;
 }
 
@@ -139,9 +139,13 @@ export interface ItineraryDay {
   items: ItineraryItem[];
 }
 
+export type Transport = 'train' | 'bus' | 'car' | 'plane';
+
 export interface Itinerary {
   title: string;
-  mode: 'walk' | 'travel';
+  mode: 'walk' | 'drive' | 'travel';
+  // 旅行の主な移動手段（経路リンクの種類に反映される）
+  transport?: Transport | null;
   days: ItineraryDay[];
 }
 
@@ -155,7 +159,8 @@ export interface ChatApiResponse {
 export async function sendChatMessage(
   message: string,
   conversationHistory: { role: string; content: string }[],
-  userLocation?: { lat: number; lng: number } | null
+  userLocation?: { lat: number; lng: number } | null,
+  transport?: Transport | null
 ): Promise<ChatApiResponse> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -164,6 +169,7 @@ export async function sendChatMessage(
       message,
       conversation_history: conversationHistory,
       ...(userLocation ? { user_location: userLocation } : {}),
+      ...(transport ? { transport } : {}),
     }),
   });
   if (!res.ok) throw new Error(`API Error: ${res.status}`);
