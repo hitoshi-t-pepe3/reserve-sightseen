@@ -10,6 +10,7 @@ import {
   withEditedItem,
   withDeletedItem,
 } from "@/lib/planStorage";
+import { NipponTravelAd } from "./NipponTravelAd";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
   spot: { icon: "🏛️", label: "観光" },
@@ -366,6 +367,9 @@ export function ItineraryTimeline({
             ))}
         </div>
       ))}
+
+      {/* 電車プランは日本旅行の新幹線＋宿セット広告（A8）を予約導線にする */}
+      {view.mode === "travel" && view.transport === "train" && <NipponTravelAd />}
 
       {/* チケット予約導線（バス=楽天トラベル高速バス、飛行機=楽パック） */}
       {view.booking && (
