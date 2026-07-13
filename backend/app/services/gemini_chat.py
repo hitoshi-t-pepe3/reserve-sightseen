@@ -43,7 +43,7 @@ def _system_instruction() -> str:
 ## 進め方
 1. プラン作成には「行き先」「チェックイン日・チェックアウト日」「人数」が必要です。足りない情報だけを1回のメッセージで簡潔に質問してください（既に会話に出ている情報は聞き直さない）。
 2. 3つが揃ったら、必ず search_hotels と search_tourist_spots を呼び出し、実データに基づいて提案してください。
-3. プランを提案するときは、必ず create_itinerary を呼んで日程表を登録してください（時刻の目安・観光/食事/宿の区別・ツール結果の address を含める）。日程表はアプリがタイムラインUIで表示します。
+3. プランを提案するときは、必ず create_itinerary を呼んで日程表を登録してください（時刻の目安・観光/食事/宿の区別・ツール結果の address / lat / lng を含める）。日程表はアプリがタイムラインUIで表示します。
 4. 本文は次だけを簡潔に書いてください（行程の詳細は日程表に任せて繰り返さない。「日程表を登録しました」のようなシステム的な文も書かない。プランの魅力の要約から書き出す）:
    - プランの狙い・見どころの1〜2文の要約
    - **おすすめホテル**（search_hotels を使った場合のみ）: ツール結果の上位2〜3件。ホテル名・1泊料金・特徴を短く。最後に「気になるホテルは、下のホテルカードの『楽天トラベルで予約』ボタンからそのまま予約できます」と案内
@@ -192,6 +192,8 @@ _CREATE_ITINERARY_DECL = FunctionDeclaration(
                                     "description": {"type": "string", "description": "1文の説明"},
                                     "durationMin": {"type": "integer", "description": "滞在目安（分）"},
                                     "address": {"type": "string", "description": "検索ツール結果の address をそのまま入れる"},
+                                    "lat": {"type": "number", "description": "検索ツール結果の lat をそのまま入れる"},
+                                    "lng": {"type": "number", "description": "検索ツール結果の lng をそのまま入れる"},
                                 },
                                 "required": ["name", "category"],
                             },
@@ -340,6 +342,9 @@ def _compact_spots(spots: list) -> list[dict]:
             "reviews": s.user_ratings_total,
             "address": s.address,
             "mapUrl": _map_url(s.name, s.address),
+            # 日程表の地点ごとの周辺チャット（geohash チャンネル）用
+            "lat": (s.location or {}).get("lat"),
+            "lng": (s.location or {}).get("lng"),
         }
         for s in spots[:8]
     ]
@@ -540,6 +545,13 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
             except (TypeError, ValueError):
                 pass
 
+            lat = lng = None
+            try:
+                if item.get("lat") is not None and item.get("lng") is not None:
+                    lat, lng = float(item["lat"]), float(item["lng"])
+            except (TypeError, ValueError):
+                pass
+
             out: Dict[str, Any] = {
                 "time": str(item["time"]) if item.get("time") else None,
                 "name": name,
@@ -547,6 +559,8 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
                 "description": str(item["description"]) if item.get("description") else None,
                 "durationMin": duration,
                 "mapUrl": _map_url(name, address),
+                "lat": lat,
+                "lng": lng,
             }
             if category != "move":
                 if from_current:

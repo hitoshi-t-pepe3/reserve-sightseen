@@ -6,6 +6,8 @@ import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { HotelSearchPanel } from "./HotelSearchPanel";
 import { SavedPlansPanel } from "./SavedPlansPanel";
+import { NearbyChat, ChatChannel } from "./NearbyChat";
+import { encodeGeohash } from "@/lib/geohash";
 import { sendChatMessage, HotelBasicInfo, SearchContext, Transport } from "@/lib/api";
 
 function generateId() {
@@ -54,6 +56,10 @@ export function ChatWindow() {
   const [locating, setLocating] = useState(false);
   // 旅行の移動手段の希望。選択中は毎メッセージでバックエンドに渡る
   const [transport, setTransport] = useState<Transport | null>(null);
+  // 周辺チャット（Nostr）。ON/OFF は localStorage に保持し次回起動時に復元
+  const [nearbyChatOn, setNearbyChatOn] = useState(false);
+  // 日程表の地点の「💬」で選ばれたチャンネル。未選択なら現在地ベース
+  const [chatSpot, setChatSpot] = useState<{ lat: number; lng: number; name: string } | null>(null);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -154,6 +160,57 @@ export function ChatWindow() {
     }
   }, []);
 
+  // 周辺チャットの ON/OFF を復元
+  useEffect(() => {
+    setNearbyChatOn(localStorage.getItem("rs-nearby-chat-on") === "1");
+  }, []);
+
+  const toggleNearbyChat = useCallback(() => {
+    setNearbyChatOn((prev) => {
+      const next = !prev;
+      localStorage.setItem("rs-nearby-chat-on", next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
+  // 日程表の地点の「💬」→ その場所のチャンネルに切り替え（OFFなら自動でON）
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      setChatSpot(e.detail);
+      setNearbyChatOn(true);
+      localStorage.setItem("rs-nearby-chat-on", "1");
+    };
+    window.addEventListener("nearby-chat-spot", handler as EventListener);
+    return () => window.removeEventListener("nearby-chat-spot", handler as EventListener);
+  }, []);
+
+  // 周辺チャットが現在地を必要とするときの位置取得
+  const requestLocationForChat = useCallback(() => {
+    if (!navigator.geolocation) {
+      setError("この端末では位置情報を利用できません");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        setError("位置情報を取得できませんでした。ブラウザの位置情報の許可を確認してください。");
+      },
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  }, []);
+
+  // チャンネル決定: 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）
+  const chatChannel: ChatChannel | null = chatSpot
+    ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name }
+    : userLocation
+      ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地" }
+      : null;
+
   // ホテル選択イベントを監視（手動検索パネルから）
   useEffect(() => {
     const handler = (e: CustomEvent) => {
@@ -192,6 +249,18 @@ export function ChatWindow() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={toggleNearbyChat}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              nearbyChatOn
+                ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+            }`}
+            aria-pressed={nearbyChatOn}
+            title="周辺チャット（Bitchat 互換）のON/OFF"
+          >
+            📡 {nearbyChatOn ? "ON" : "OFF"}
+          </button>
+          <button
             onClick={() => setShowSavedPlans(true)}
             className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
           >
@@ -205,6 +274,15 @@ export function ChatWindow() {
           </button>
         </div>
       </header>
+
+      {/* 周辺チャット（ON のときだけ接続・表示。OFF でリレー切断） */}
+      {nearbyChatOn && (
+        <NearbyChat
+          channel={chatChannel}
+          onRequestLocation={requestLocationForChat}
+          locating={locating}
+        />
+      )}
 
       {/* Messages */}
       <MessageList messages={messages} isLoading={isLoading} />

@@ -134,6 +134,9 @@ export interface ItineraryItem {
   navUrl?: string;
   // 散歩・ドライブでの「直前の地点から」の経路リンク（2箇所目以降）
   prevNavUrl?: string;
+  // スポットの座標（周辺チャットの geohash チャンネル用。ツール結果から引き継ぐ）
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface ItineraryDay {

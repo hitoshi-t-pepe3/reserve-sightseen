@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "next": "^15.1.0",
+    "nostr-tools": "^2.23.11",
     "playwright": "^1.61.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

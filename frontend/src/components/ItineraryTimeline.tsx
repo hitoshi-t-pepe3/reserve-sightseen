@@ -285,6 +285,21 @@ export function ItineraryTimeline({
                               前の地点から経路
                             </a>
                           )}
+                          {item.lat != null && item.lng != null && (
+                            <button
+                              onClick={() =>
+                                window.dispatchEvent(
+                                  new CustomEvent("nearby-chat-spot", {
+                                    detail: { lat: item.lat, lng: item.lng, name: item.name },
+                                  })
+                                )
+                              }
+                              className="text-xs text-indigo-600 underline hover:text-indigo-800"
+                              aria-label={`${item.name} の周辺チャットを開く`}
+                            >
+                              💬 この場所のチャット
+                            </button>
+                          )}
                         </div>
                       </div>
                       {(editHandler || deleteHandler) && (
