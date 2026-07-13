@@ -3,19 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { SimplePool } from "nostr-tools/pool";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
+import { minePow } from "nostr-tools/nip13";
 import { getOrCreateSecretKey } from "@/lib/nostrKeys";
+import { relaysNear } from "@/lib/georelays";
 import { BlockedUser, loadBlocklist, blockUser, unblockUser } from "@/lib/blocklist";
 
-// Bitchat と相互配信するための公開リレー。必要なら減らしてよい
-export const NOSTR_RELAYS = [
-  "wss://relay.damus.io",
-  "wss://nos.lol",
-  "wss://relay.snort.social",
-];
+// Bitchat の位置チャンネルと互換のプロトコル:
+// - kind 20000（ephemeral・リレーに保存されない）
+// - tags: ["g", geohash6] + ["n", ニックネーム]
+// - 送信時に NIP-13 PoW（8bit。Bitchat 側のレート制限を回避）
+// - リレーは georelays ディレクトリからチャンネル座標に近い順に選ぶ
+const EPHEMERAL_KIND = 20000;
+const POW_BITS = 8;
+const NICK_KEY = "rs-nostr-nick";
 
 export interface ChatChannel {
   gh: string; // 6文字ジオハッシュ（チャンネルID）
   label: string; // 表示名（スポット名 or 現在地）
+  lat: number;
+  lng: number;
 }
 
 interface ChatMessage {
@@ -23,6 +29,7 @@ interface ChatMessage {
   pubkey: string;
   content: string;
   created_at: number;
+  name?: string; // ["n"] タグのニックネーム
 }
 
 interface NearbyChatProps {
@@ -31,7 +38,6 @@ interface NearbyChatProps {
   locating: boolean;
 }
 
-// 周辺チャット（Nostr geohash チャンネル）。リアルタイムのみ表示・ローカル保存なし。
 export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);
@@ -39,48 +45,82 @@ export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatP
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [relayCount, setRelayCount] = useState(0);
   const [sendError, setSendError] = useState<string | null>(null);
   const [myPubkey, setMyPubkey] = useState<string | null>(null);
+  const [nickname, setNickname] = useState("");
   const poolRef = useRef<SimplePool | null>(null);
+  const relaysRef = useRef<string[]>([]);
   const seenIds = useRef<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadBlocklist().then(setBlocked).catch(() => {});
+    let nick = localStorage.getItem(NICK_KEY);
+    if (!nick) {
+      nick = `旅人${Math.floor(1000 + Math.random() * 9000)}`;
+      localStorage.setItem(NICK_KEY, nick);
+    }
+    setNickname(nick);
   }, []);
 
-  // チャンネル購読。過去ログは取得しない（since ≒ 今）
+  const editNickname = () => {
+    const next = prompt("チャットでの表示名", nickname)?.trim();
+    if (next) {
+      setNickname(next);
+      localStorage.setItem(NICK_KEY, next);
+    }
+  };
+
+  // チャンネル購読。リレーは座標に近い順（Bitchat と同じディレクトリ）
   const gh = channel?.gh;
+  const clat = channel?.lat;
+  const clng = channel?.lng;
   useEffect(() => {
-    if (!gh) return;
+    if (!gh || clat == null || clng == null) return;
+    let cancelled = false;
+    let pool: SimplePool | null = null;
+    let sub: { close: () => void } | null = null;
+    let relayList: string[] = [];
     setMessages([]);
     seenIds.current = new Set();
     setConnected(false);
-    const pool = new SimplePool();
-    poolRef.current = pool;
-    const sub = pool.subscribeMany(
-      NOSTR_RELAYS,
-      { kinds: [1], "#g": [gh], since: Math.floor(Date.now() / 1000) - 60 },
-      {
-        onevent(ev) {
-          if (seenIds.current.has(ev.id)) return;
-          seenIds.current.add(ev.id);
-          setMessages((prev) => [
-            ...prev.slice(-99),
-            { id: ev.id, pubkey: ev.pubkey, content: ev.content, created_at: ev.created_at },
-          ]);
-        },
-        oneose() {
-          setConnected(true);
-        },
-      }
-    );
+    setRelayCount(0);
+
+    (async () => {
+      relayList = await relaysNear(clat, clng);
+      if (cancelled) return;
+      setRelayCount(relayList.length);
+      pool = new SimplePool();
+      poolRef.current = pool;
+      relaysRef.current = relayList;
+      sub = pool.subscribeMany(
+        relayList,
+        { kinds: [EPHEMERAL_KIND], "#g": [gh], since: Math.floor(Date.now() / 1000) - 60 },
+        {
+          onevent(ev) {
+            if (seenIds.current.has(ev.id)) return;
+            seenIds.current.add(ev.id);
+            const name = ev.tags.find((t) => t[0] === "n")?.[1];
+            setMessages((prev) => [
+              ...prev.slice(-99),
+              { id: ev.id, pubkey: ev.pubkey, content: ev.content, created_at: ev.created_at, name },
+            ]);
+          },
+          oneose() {
+            setConnected(true);
+          },
+        }
+      );
+    })();
+
     return () => {
-      sub.close();
-      pool.close(NOSTR_RELAYS);
+      cancelled = true;
+      sub?.close();
+      if (pool) pool.close(relayList);
       poolRef.current = null;
     };
-  }, [gh]);
+  }, [gh, clat, clng]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -93,25 +133,28 @@ export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatP
     setSendError(null);
     try {
       const sk = await getOrCreateSecretKey();
-      setMyPubkey(getPublicKey(sk));
+      const pubkey = getPublicKey(sk);
+      setMyPubkey(pubkey);
+      const tags: string[][] = [["g", channel.gh]];
+      if (nickname) tags.push(["n", nickname]);
+      // PoW を付けてから署名（nonce タグが増えるので finalize は mined の内容で行う）
+      const mined = minePow(
+        { kind: EPHEMERAL_KIND, created_at: Math.floor(Date.now() / 1000), tags, content, pubkey },
+        POW_BITS
+      );
       const event = finalizeEvent(
-        {
-          kind: 1,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [["g", channel.gh]],
-          content,
-        },
+        { kind: EPHEMERAL_KIND, created_at: mined.created_at, tags: mined.tags, content },
         sk
       );
       // 自分の発言は即時表示（リレーからのエコーは seenIds で重複排除）
       seenIds.current.add(event.id);
       setMessages((prev) => [
         ...prev.slice(-99),
-        { id: event.id, pubkey: event.pubkey, content: event.content, created_at: event.created_at },
+        { id: event.id, pubkey, content, created_at: event.created_at, name: nickname },
       ]);
       setDraft("");
       const pool = poolRef.current;
-      if (pool) await Promise.any(pool.publish(NOSTR_RELAYS, event));
+      if (pool) await Promise.any(pool.publish(relaysRef.current, event));
     } catch {
       setSendError("送信に失敗しました。電波状況を確認してもう一度お試しください。");
     } finally {
@@ -149,29 +192,29 @@ export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatP
   return (
     <div className="border-b border-gray-200 bg-white">
       {/* パネルヘッダー */}
-      <div className="flex items-center justify-between px-4 py-2 bg-indigo-50">
+      <div className="flex items-center justify-between px-4 py-2 bg-indigo-50 gap-2">
         <p className="text-xs text-gray-700 min-w-0 truncate">
           📡 <span className="font-medium">{channel.label}</span> の周辺チャット
           <span className="ml-1 font-mono text-gray-400">#{channel.gh}</span>
           <span
             className={`inline-block w-2 h-2 rounded-full ml-2 ${connected ? "bg-green-500" : "bg-gray-300"}`}
-            title={connected ? "接続中" : "接続待ち"}
+            title={connected ? `接続中（リレー${relayCount}件）` : "接続待ち"}
           />
         </p>
-        <button
-          onClick={() => setShowBlocklist((v) => !v)}
-          className="shrink-0 text-xs text-indigo-700 underline"
-        >
-          ブロック管理{blocked.length > 0 ? `(${blocked.length})` : ""}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={editNickname} className="text-xs text-gray-500 underline" title="表示名を変更">
+            {nickname || "名前"}✏️
+          </button>
+          <button onClick={() => setShowBlocklist((v) => !v)} className="text-xs text-indigo-700 underline">
+            ブロック管理{blocked.length > 0 ? `(${blocked.length})` : ""}
+          </button>
+        </div>
       </div>
 
       {/* ブロック管理 */}
       {showBlocklist && (
         <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 space-y-1">
-          {blocked.length === 0 && (
-            <p className="text-xs text-gray-500">ブロック中のユーザーはいません</p>
-          )}
+          {blocked.length === 0 && <p className="text-xs text-gray-500">ブロック中のユーザーはいません</p>}
           {blocked.map((b) => (
             <div key={b.id} className="flex items-center justify-between gap-2 text-xs">
               <span className="font-mono text-gray-600 truncate">{b.id.slice(0, 16)}…</span>
@@ -194,9 +237,9 @@ export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatP
           <div key={m.id} className="text-sm">
             <div className="flex items-baseline gap-2">
               <span
-                className={`font-mono text-xs ${m.pubkey === myPubkey ? "text-indigo-600 font-semibold" : "text-gray-400"}`}
+                className={`text-xs ${m.pubkey === myPubkey ? "text-indigo-600 font-semibold" : "text-gray-500"}`}
               >
-                {m.pubkey === myPubkey ? "自分" : `${m.pubkey.slice(0, 8)}…`}
+                {m.pubkey === myPubkey ? "自分" : m.name || `${m.pubkey.slice(0, 8)}…`}
               </span>
               <span className="text-[10px] text-gray-300">
                 {new Date(m.created_at * 1000).toLocaleTimeString("ja-JP", {

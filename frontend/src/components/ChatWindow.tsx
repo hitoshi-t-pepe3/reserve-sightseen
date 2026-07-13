@@ -204,11 +204,12 @@ export function ChatWindow() {
     );
   }, []);
 
-  // チャンネル決定: 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）
+  // チャンネル決定: 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）。
+  // 座標はリレー選択（チャンネルに近いリレー）にも使う
   const chatChannel: ChatChannel | null = chatSpot
-    ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name }
+    ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name, lat: chatSpot.lat, lng: chatSpot.lng }
     : userLocation
-      ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地" }
+      ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地", lat: userLocation.lat, lng: userLocation.lng }
       : null;
 
   // ホテル選択イベントを監視（手動検索パネルから）
