@@ -5,6 +5,7 @@ import { Message } from "@/types/chat";
 import { MessageBubble } from "./MessageBubble";
 import { HotelCard } from "./HotelCard";
 import { ItineraryTimeline } from "./ItineraryTimeline";
+import { JalanAd } from "./JalanAd";
 import { buildReserveUrl } from "@/lib/api";
 
 interface MessageListProps {
@@ -50,6 +51,10 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                   />
                 </div>
               ))}
+              {/* じゃらん広告（A8）はカード列の最後に1枚だけ */}
+              <div className="w-72 shrink-0">
+                <JalanAd />
+              </div>
             </div>
           )}
         </div>
