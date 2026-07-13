@@ -36,9 +36,11 @@ interface NearbyChatProps {
   channel: ChatChannel | null;
   onRequestLocation: () => void;
   locating: boolean;
+  // チャンネルID（geohash）の手動指定。Bitchat 側の表示に合わせるために使う
+  onOverrideChannel?: (gh: string) => void;
 }
 
-export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatProps) {
+export function NearbyChat({ channel, onRequestLocation, locating, onOverrideChannel }: NearbyChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);
   const [showBlocklist, setShowBlocklist] = useState(false);
@@ -195,7 +197,21 @@ export function NearbyChat({ channel, onRequestLocation, locating }: NearbyChatP
       <div className="flex items-center justify-between px-4 py-2 bg-indigo-50 gap-2">
         <p className="text-xs text-gray-700 min-w-0 truncate">
           📡 <span className="font-medium">{channel.label}</span> の周辺チャット
-          <span className="ml-1 font-mono text-gray-400">#{channel.gh}</span>
+          <button
+            onClick={() => {
+              const v = prompt(
+                "チャンネルID（ジオハッシュ）を直接指定できます。\nBitchat 側に表示されているIDと同じにすると確実に繋がります。",
+                channel.gh
+              )
+                ?.trim()
+                .toLowerCase();
+              if (v && /^[0-9b-hj-km-np-z]{2,10}$/.test(v) && onOverrideChannel) onOverrideChannel(v);
+            }}
+            className="ml-1 font-mono text-indigo-600 underline"
+            title="チャンネルIDを変更"
+          >
+            #{channel.gh}
+          </button>
           <span
             className={`inline-block w-2 h-2 rounded-full ml-2 ${connected ? "bg-green-500" : "bg-gray-300"}`}
             title={connected ? `接続中（リレー${relayCount}件）` : "接続待ち"}

@@ -7,7 +7,7 @@ import { MessageInput } from "./MessageInput";
 import { HotelSearchPanel } from "./HotelSearchPanel";
 import { SavedPlansPanel } from "./SavedPlansPanel";
 import { NearbyChat, ChatChannel } from "./NearbyChat";
-import { encodeGeohash } from "@/lib/geohash";
+import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 import { sendChatMessage, HotelBasicInfo, SearchContext, Transport } from "@/lib/api";
 
 function generateId() {
@@ -60,6 +60,9 @@ export function ChatWindow() {
   const [nearbyChatOn, setNearbyChatOn] = useState(false);
   // 日程表の地点の「💬」で選ばれたチャンネル。未選択なら現在地ベース
   const [chatSpot, setChatSpot] = useState<{ lat: number; lng: number; name: string } | null>(null);
+  // チャンネルID（geohash）の手動指定。位置情報の誤差で Bitchat と隣のブロックに
+  // ずれたとき、Bitchat 側の表示に合わせるために使う
+  const [chatGhOverride, setChatGhOverride] = useState<string | null>(null);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -177,6 +180,7 @@ export function ChatWindow() {
   useEffect(() => {
     const handler = (e: CustomEvent) => {
       setChatSpot(e.detail);
+      setChatGhOverride(null);
       setNearbyChatOn(true);
       localStorage.setItem("rs-nearby-chat-on", "1");
     };
@@ -184,7 +188,8 @@ export function ChatWindow() {
     return () => window.removeEventListener("nearby-chat-spot", handler as EventListener);
   }, []);
 
-  // 周辺チャットが現在地を必要とするときの位置取得
+  // 周辺チャットが現在地を必要とするときの位置取得。
+  // ジオハッシュのブロックが1文字ずれると Bitchat と別チャンネルになるため高精度（GPS）で取る
   const requestLocationForChat = useCallback(() => {
     if (!navigator.geolocation) {
       setError("この端末では位置情報を利用できません");
@@ -194,23 +199,26 @@ export function ChatWindow() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setChatGhOverride(null);
         setLocating(false);
       },
       () => {
         setLocating(false);
         setError("位置情報を取得できませんでした。ブラウザの位置情報の許可を確認してください。");
       },
-      { enableHighAccuracy: false, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   }, []);
 
-  // チャンネル決定: 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）。
+  // チャンネル決定: 手動指定 > 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）。
   // 座標はリレー選択（チャンネルに近いリレー）にも使う
-  const chatChannel: ChatChannel | null = chatSpot
-    ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name, lat: chatSpot.lat, lng: chatSpot.lng }
-    : userLocation
-      ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地", lat: userLocation.lat, lng: userLocation.lng }
-      : null;
+  const chatChannel: ChatChannel | null = chatGhOverride
+    ? { gh: chatGhOverride, label: "手動チャンネル", ...decodeGeohashCenter(chatGhOverride) }
+    : chatSpot
+      ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name, lat: chatSpot.lat, lng: chatSpot.lng }
+      : userLocation
+        ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地", lat: userLocation.lat, lng: userLocation.lng }
+        : null;
 
   // ホテル選択イベントを監視（手動検索パネルから）
   useEffect(() => {
@@ -282,6 +290,7 @@ export function ChatWindow() {
           channel={chatChannel}
           onRequestLocation={requestLocationForChat}
           locating={locating}
+          onOverrideChannel={(gh) => setChatGhOverride(gh)}
         />
       )}
 
