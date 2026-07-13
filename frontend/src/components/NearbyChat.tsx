@@ -51,6 +51,11 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
   const [sendError, setSendError] = useState<string | null>(null);
   const [myPubkey, setMyPubkey] = useState<string | null>(null);
   const [nickname, setNickname] = useState("");
+  // インライン編集（iOS の PWA では prompt() が使えないためダイアログは使わない）
+  const [editingChannel, setEditingChannel] = useState(false);
+  const [channelDraft, setChannelDraft] = useState("");
+  const [editingNick, setEditingNick] = useState(false);
+  const [nickDraft, setNickDraft] = useState("");
   const poolRef = useRef<SimplePool | null>(null);
   const relaysRef = useRef<string[]>([]);
   const seenIds = useRef<Set<string>>(new Set());
@@ -66,11 +71,20 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
     setNickname(nick);
   }, []);
 
-  const editNickname = () => {
-    const next = prompt("チャットでの表示名", nickname)?.trim();
+  const submitNickname = () => {
+    const next = nickDraft.trim();
     if (next) {
       setNickname(next);
       localStorage.setItem(NICK_KEY, next);
+    }
+    setEditingNick(false);
+  };
+
+  const submitChannel = () => {
+    const v = channelDraft.trim().toLowerCase();
+    if (v && /^[0-9b-hj-km-np-z]{2,10}$/.test(v) && onOverrideChannel) {
+      onOverrideChannel(v);
+      setEditingChannel(false);
     }
   };
 
@@ -199,13 +213,8 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
           📡 <span className="font-medium">{channel.label}</span> の周辺チャット
           <button
             onClick={() => {
-              const v = prompt(
-                "チャンネルID（ジオハッシュ）を直接指定できます。\nBitchat 側に表示されているIDと同じにすると確実に繋がります。",
-                channel.gh
-              )
-                ?.trim()
-                .toLowerCase();
-              if (v && /^[0-9b-hj-km-np-z]{2,10}$/.test(v) && onOverrideChannel) onOverrideChannel(v);
+              setChannelDraft(channel.gh);
+              setEditingChannel((v) => !v);
             }}
             className="ml-1 font-mono text-indigo-600 underline"
             title="チャンネルIDを変更"
@@ -218,7 +227,14 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
           />
         </p>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={editNickname} className="text-xs text-gray-500 underline" title="表示名を変更">
+          <button
+            onClick={() => {
+              setNickDraft(nickname);
+              setEditingNick((v) => !v);
+            }}
+            className="text-xs text-gray-500 underline"
+            title="表示名を変更"
+          >
             {nickname || "名前"}✏️
           </button>
           <button onClick={() => setShowBlocklist((v) => !v)} className="text-xs text-indigo-700 underline">
@@ -226,6 +242,57 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
           </button>
         </div>
       </div>
+
+      {/* チャンネルIDのインライン変更（Bitchat 側の表示に合わせる） */}
+      {editingChannel && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-indigo-50/50">
+          <span className="text-xs text-gray-600 shrink-0">チャンネルID:</span>
+          <input
+            type="text"
+            value={channelDraft}
+            onChange={(e) => setChannelDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitChannel()}
+            placeholder="例: xn77s6（Bitchatの表示に合わせる）"
+            className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm font-mono"
+            autoFocus
+          />
+          <button
+            onClick={submitChannel}
+            disabled={!/^[0-9b-hj-km-np-z]{2,10}$/.test(channelDraft.trim().toLowerCase())}
+            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs disabled:opacity-50 shrink-0"
+          >
+            変更
+          </button>
+          <button onClick={() => setEditingChannel(false)} className="text-xs text-gray-500 shrink-0">
+            キャンセル
+          </button>
+        </div>
+      )}
+
+      {/* 表示名のインライン変更 */}
+      {editingNick && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50">
+          <span className="text-xs text-gray-600 shrink-0">表示名:</span>
+          <input
+            type="text"
+            value={nickDraft}
+            onChange={(e) => setNickDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitNickname()}
+            className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+            autoFocus
+          />
+          <button
+            onClick={submitNickname}
+            disabled={!nickDraft.trim()}
+            className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs disabled:opacity-50 shrink-0"
+          >
+            変更
+          </button>
+          <button onClick={() => setEditingNick(false)} className="text-xs text-gray-500 shrink-0">
+            キャンセル
+          </button>
+        </div>
+      )}
 
       {/* ブロック管理 */}
       {showBlocklist && (

@@ -112,13 +112,10 @@ export function ItineraryTimeline({
   const deleteHandler =
     onDeleteItem ??
     (saveable
-      ? (di: number, ii: number) => {
-          const item = view.days[di]?.items[ii];
-          if (!item) return;
-          if (!confirm(`「${item.name}」を行程から削除しますか？`)) return;
-          applyLocal(withDeletedItem(view, di, ii));
-        }
+      ? (di: number, ii: number) => applyLocal(withDeletedItem(view, di, ii))
       : undefined);
+  // 削除は2タップ確認（iOS の PWA では confirm() が使えないためダイアログは使わない）
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const submitAddItem = (dayIndex: number) => {
     const name = newName.trim();
@@ -315,11 +312,22 @@ export function ItineraryTimeline({
                           )}
                           {deleteHandler && (
                             <button
-                              onClick={() => deleteHandler(di, ii)}
-                              className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-sm"
+                              onClick={() => {
+                                if (pendingDelete === key) {
+                                  setPendingDelete(null);
+                                  deleteHandler(di, ii);
+                                } else {
+                                  setPendingDelete(key);
+                                }
+                              }}
+                              className={
+                                pendingDelete === key
+                                  ? "h-7 px-2 flex items-center justify-center rounded bg-red-600 text-white text-xs font-medium"
+                                  : "w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-sm"
+                              }
                               aria-label={`${item.name} を削除`}
                             >
-                              🗑️
+                              {pendingDelete === key ? "削除する" : "🗑️"}
                             </button>
                           )}
                         </div>

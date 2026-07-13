@@ -163,9 +163,17 @@ export function ChatWindow() {
     }
   }, []);
 
-  // 周辺チャットの ON/OFF を復元
+  // 周辺チャットの ON/OFF・手動チャンネルを復元
   useEffect(() => {
     setNearbyChatOn(localStorage.getItem("rs-nearby-chat-on") === "1");
+    setChatGhOverride(localStorage.getItem("rs-nearby-chat-gh") || null);
+  }, []);
+
+  // 手動チャンネルの設定/解除（リロード後も保持する）
+  const applyGhOverride = useCallback((gh: string | null) => {
+    setChatGhOverride(gh);
+    if (gh) localStorage.setItem("rs-nearby-chat-gh", gh);
+    else localStorage.removeItem("rs-nearby-chat-gh");
   }, []);
 
   const toggleNearbyChat = useCallback(() => {
@@ -181,6 +189,7 @@ export function ChatWindow() {
     const handler = (e: CustomEvent) => {
       setChatSpot(e.detail);
       setChatGhOverride(null);
+      localStorage.removeItem("rs-nearby-chat-gh");
       setNearbyChatOn(true);
       localStorage.setItem("rs-nearby-chat-on", "1");
     };
@@ -200,6 +209,7 @@ export function ChatWindow() {
       (pos) => {
         setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setChatGhOverride(null);
+        localStorage.removeItem("rs-nearby-chat-gh");
         setLocating(false);
       },
       () => {
@@ -290,7 +300,7 @@ export function ChatWindow() {
           channel={chatChannel}
           onRequestLocation={requestLocationForChat}
           locating={locating}
-          onOverrideChannel={(gh) => setChatGhOverride(gh)}
+          onOverrideChannel={applyGhOverride}
         />
       )}
 

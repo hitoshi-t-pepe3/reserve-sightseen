@@ -28,15 +28,24 @@ interface SavedPlansPanelProps {
 export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   const [plans, setPlans] = useState<SavedPlan[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  // 削除は2タップ確認（iOS の PWA では confirm() が使えない）
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) setPlans(loadPlans());
+    if (isOpen) {
+      setPlans(loadPlans());
+      setPendingDeleteId(null);
+    }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleDelete = (plan: SavedPlan) => {
-    if (!confirm(`「${plan.itinerary.title}」を削除しますか？`)) return;
+    if (pendingDeleteId !== plan.id) {
+      setPendingDeleteId(plan.id);
+      return;
+    }
+    setPendingDeleteId(null);
     setPlans(deletePlan(plan.id));
     if (openId === plan.id) setOpenId(null);
   };
@@ -55,10 +64,8 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
     setPlans(updatePlan(plan.id, withEditedItem(plan.itinerary, dayIndex, itemIndex, name, time)));
   };
 
+  // 確認は ItineraryTimeline 側の2タップUIで済んでいる
   const handleDeleteItem = (plan: SavedPlan, dayIndex: number, itemIndex: number) => {
-    const item = plan.itinerary.days[dayIndex]?.items[itemIndex];
-    if (!item) return;
-    if (!confirm(`「${item.name}」を行程から削除しますか？`)) return;
     setPlans(updatePlan(plan.id, withDeletedItem(plan.itinerary, dayIndex, itemIndex)));
   };
 
@@ -114,9 +121,13 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                 </button>
                 <button
                   onClick={() => handleDelete(plan)}
-                  className="shrink-0 px-2.5 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100"
+                  className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
+                    pendingDeleteId === plan.id
+                      ? "bg-red-600 text-white"
+                      : "bg-red-50 text-red-600 hover:bg-red-100"
+                  }`}
                 >
-                  削除
+                  {pendingDeleteId === plan.id ? "本当に削除" : "削除"}
                 </button>
               </div>
               {opened && (
