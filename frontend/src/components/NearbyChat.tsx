@@ -193,7 +193,7 @@ export function NearbyChat({ channel, onRequestLocation, locating, onOverrideCha
   if (!channel) {
     return (
       <div className="border-b border-gray-200 bg-indigo-50 px-4 py-2.5 text-xs text-gray-700 flex items-center justify-between gap-2">
-        <span>📡 周辺チャット: 現在地か、日程表の地点の「💬」で場所を選んでください</span>
+        <span>📡 周辺チャット: 「現在地を使う」で開始（日程表の地点は各「💬」からその場で開けます）</span>
         <button
           onClick={onRequestLocation}
           disabled={locating}

@@ -58,10 +58,9 @@ export function ChatWindow() {
   const [transport, setTransport] = useState<Transport | null>(null);
   // 周辺チャット（Nostr）。ON/OFF は localStorage に保持し次回起動時に復元
   const [nearbyChatOn, setNearbyChatOn] = useState(false);
-  // 日程表の地点の「💬」で選ばれたチャンネル。未選択なら現在地ベース
-  const [chatSpot, setChatSpot] = useState<{ lat: number; lng: number; name: string } | null>(null);
   // チャンネルID（geohash）の手動指定。位置情報の誤差で Bitchat と隣のブロックに
   // ずれたとき、Bitchat 側の表示に合わせるために使う
+  // （日程表の地点の「💬」チャットは ItineraryTimeline 内にインライン表示される）
   const [chatGhOverride, setChatGhOverride] = useState<string | null>(null);
 
   const sendMessage = useCallback(async (
@@ -184,19 +183,6 @@ export function ChatWindow() {
     });
   }, []);
 
-  // 日程表の地点の「💬」→ その場所のチャンネルに切り替え（OFFなら自動でON）
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      setChatSpot(e.detail);
-      setChatGhOverride(null);
-      localStorage.removeItem("rs-nearby-chat-gh");
-      setNearbyChatOn(true);
-      localStorage.setItem("rs-nearby-chat-on", "1");
-    };
-    window.addEventListener("nearby-chat-spot", handler as EventListener);
-    return () => window.removeEventListener("nearby-chat-spot", handler as EventListener);
-  }, []);
-
   // 周辺チャットが現在地を必要とするときの位置取得。
   // ジオハッシュのブロックが1文字ずれると Bitchat と別チャンネルになるため高精度（GPS）で取る
   const requestLocationForChat = useCallback(() => {
@@ -220,15 +206,13 @@ export function ChatWindow() {
     );
   }, []);
 
-  // チャンネル決定: 手動指定 > 選択スポット > 現在地。6文字ジオハッシュ（約1km四方）。
+  // チャンネル決定: 手動指定 > 現在地。6文字ジオハッシュ（約1km四方）。
   // 座標はリレー選択（チャンネルに近いリレー）にも使う
   const chatChannel: ChatChannel | null = chatGhOverride
     ? { gh: chatGhOverride, label: "手動チャンネル", ...decodeGeohashCenter(chatGhOverride) }
-    : chatSpot
-      ? { gh: encodeGeohash(chatSpot.lat, chatSpot.lng), label: chatSpot.name, lat: chatSpot.lat, lng: chatSpot.lng }
-      : userLocation
-        ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地", lat: userLocation.lat, lng: userLocation.lng }
-        : null;
+    : userLocation
+      ? { gh: encodeGeohash(userLocation.lat, userLocation.lng), label: "現在地", lat: userLocation.lat, lng: userLocation.lng }
+      : null;
 
   // ホテル選択イベントを監視（手動検索パネルから）
   useEffect(() => {

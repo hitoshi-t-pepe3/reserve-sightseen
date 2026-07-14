@@ -11,6 +11,8 @@ import {
   withDeletedItem,
 } from "@/lib/planStorage";
 import { NipponTravelAd } from "./NipponTravelAd";
+import { NearbyChat } from "./NearbyChat";
+import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
   spot: { icon: "🏛️", label: "観光" },
@@ -116,6 +118,9 @@ export function ItineraryTimeline({
       : undefined);
   // 削除は2タップ確認（iOS の PWA では confirm() が使えないためダイアログは使わない）
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // 地点の「💬」で開くインラインチャット（開いている項目のキーと、チャンネルの手動上書き）
+  const [chatItemKey, setChatItemKey] = useState<string | null>(null);
+  const [chatGhOverride, setChatGhOverride] = useState<string | null>(null);
 
   const submitAddItem = (dayIndex: number) => {
     const name = newName.trim();
@@ -284,20 +289,41 @@ export function ItineraryTimeline({
                           )}
                           {item.lat != null && item.lng != null && (
                             <button
-                              onClick={() =>
-                                window.dispatchEvent(
-                                  new CustomEvent("nearby-chat-spot", {
-                                    detail: { lat: item.lat, lng: item.lng, name: item.name },
-                                  })
-                                )
-                              }
+                              onClick={() => {
+                                setChatGhOverride(null);
+                                setChatItemKey((cur) => (cur === key ? null : key));
+                              }}
                               className="text-xs text-indigo-600 underline hover:text-indigo-800"
                               aria-label={`${item.name} の周辺チャットを開く`}
                             >
-                              💬 この場所のチャット
+                              {chatItemKey === key ? "💬 チャットを閉じる" : "💬 この場所のチャット"}
                             </button>
                           )}
                         </div>
+                        {/* 地点チャットはボタンの直下にインライン表示（閉じると切断） */}
+                        {chatItemKey === key && item.lat != null && item.lng != null && (
+                          <div className="mt-2 border border-indigo-200 rounded-xl overflow-hidden">
+                            <NearbyChat
+                              channel={
+                                chatGhOverride
+                                  ? {
+                                      gh: chatGhOverride,
+                                      label: item.name,
+                                      ...decodeGeohashCenter(chatGhOverride),
+                                    }
+                                  : {
+                                      gh: encodeGeohash(item.lat, item.lng),
+                                      label: item.name,
+                                      lat: item.lat,
+                                      lng: item.lng,
+                                    }
+                              }
+                              onRequestLocation={() => {}}
+                              locating={false}
+                              onOverrideChannel={(gh) => setChatGhOverride(gh)}
+                            />
+                          </div>
+                        )}
                       </div>
                       {(editHandler || deleteHandler) && (
                         <div className="flex gap-1 shrink-0">
