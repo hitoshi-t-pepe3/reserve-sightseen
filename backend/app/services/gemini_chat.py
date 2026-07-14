@@ -61,6 +61,7 @@ def _system_instruction() -> str:
 - **温泉**: search_hotels の onsen=true を使い、温泉宿だけに絞る。
 - **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
 - **ドライブ**（現在地あり・車で回りたい）: search_spots_nearby を radius_m=15000 程度で呼び、車で半日〜1日で回れる3〜6箇所を選んで create_itinerary（mode=drive、days は1要素）でドライブコースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+- 散歩・ドライブ共通: 各スポットに必ず time（目安時刻）と durationMin（滞在の目安分）を入れる。ユーザーが出発地点・スタート地点に戻ることを希望したら、最後の項目として name=「出発地点へ戻る」・category=move・lat/lng=現在地の座標（システム情報の値）を入れる。
 
 ## 移動手段
 - ユーザーが旅行の移動手段（電車・バス・車・飛行機）を指定・希望したら、create_itinerary の transport に渡してください（電車=train, バス=bus, 車=car, 飛行機=plane）。経路リンクの種類がそれに合わせて切り替わります。
@@ -571,6 +572,10 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
                 elif prev_query:
                     out["navUrl"] = _dir_url(prev_query, query, travelmode)
                 prev_query = query
+            elif from_current and lat is not None and lng is not None:
+                # 座標つきの移動（「出発地点へ戻る」等）: 現在地からその座標への経路。
+                # 地名では検索できないため座標を直接目的地にする
+                out["navUrl"] = _dir_url(None, f"{lat},{lng}", travelmode)
             items_out.append(out)
 
         if items_out:

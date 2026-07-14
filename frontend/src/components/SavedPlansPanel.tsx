@@ -50,8 +50,14 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
     if (openId === plan.id) setOpenId(null);
   };
 
-  const handleAddItem = (plan: SavedPlan, dayIndex: number, name: string, time?: string) => {
-    setPlans(updatePlan(plan.id, withAddedItem(plan.itinerary, dayIndex, name, time)));
+  const handleAddItem = (
+    plan: SavedPlan,
+    dayIndex: number,
+    name: string,
+    time?: string,
+    insertIndex?: number
+  ) => {
+    setPlans(updatePlan(plan.id, withAddedItem(plan.itinerary, dayIndex, name, time, insertIndex)));
   };
 
   const handleEditItem = (
@@ -134,7 +140,9 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                 <div className="p-3">
                   <ItineraryTimeline
                     itinerary={plan.itinerary}
-                    onAddItem={(dayIndex, name, time) => handleAddItem(plan, dayIndex, name, time)}
+                    onAddItem={(dayIndex, name, time, insertIndex) =>
+                      handleAddItem(plan, dayIndex, name, time, insertIndex)
+                    }
                     onEditItem={(dayIndex, itemIndex, name, time) =>
                       handleEditItem(plan, dayIndex, itemIndex, name, time)
                     }

@@ -97,22 +97,24 @@ function prevSpotName(items: ItineraryItem[], beforeIndex: number): string | und
     .find((i) => i.category !== "move")?.name;
 }
 
-// 手動追加スポットを組み立てる（その日の末尾に追加される想定）
+// 手動追加スポットを組み立てる（insertIndex の位置に入る想定。省略時は末尾）
 export function buildManualItem(
   name: string,
   time: string | undefined,
   itinerary: Itinerary,
-  dayIndex: number
+  dayIndex: number,
+  insertIndex?: number
 ): ItineraryItem {
   const query = name.trim();
   const items = itinerary.days[dayIndex]?.items ?? [];
+  const at = insertIndex ?? items.length;
   return {
     time: time?.trim() || null,
     name: query,
     category: "spot",
     description: null,
     durationMin: null,
-    ...buildLinks(query, itinerary, prevSpotName(items, items.length)),
+    ...buildLinks(query, itinerary, prevSpotName(items, at)),
   };
 }
 
@@ -137,14 +139,22 @@ export function nextSpotIndex(items: ItineraryItem[], fromIndex: number): number
 // ---- 日程表のイミュータブルな編集ヘルパー（新しいコピーを返す） ----
 // チャット内の日程表と保存プラン画面の両方から使う
 
+// insertIndex の位置に目的地を挿入する（省略時は末尾）。
+// 挿入位置の次のスポットは起点が変わるため経路リンクを組み直す
 export function withAddedItem(
   itinerary: Itinerary,
   dayIndex: number,
   name: string,
-  time?: string
+  time?: string,
+  insertIndex?: number
 ): Itinerary {
   const next = structuredClone(itinerary);
-  next.days[dayIndex]?.items.push(buildManualItem(name, time, next, dayIndex));
+  const items = next.days[dayIndex]?.items;
+  if (!items) return next;
+  const at = Math.max(0, Math.min(insertIndex ?? items.length, items.length));
+  items.splice(at, 0, buildManualItem(name, time, next, dayIndex, at));
+  const after = nextSpotIndex(items, at + 1);
+  if (after >= 0) relinkItem(next, dayIndex, after);
   return next;
 }
 

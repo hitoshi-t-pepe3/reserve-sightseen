@@ -39,8 +39,8 @@ interface ItineraryTimelineProps {
   // チャット内の表示で保存ボタンを出す（localStorage に最大10件）。
   // このモードでは追加・編集・削除も内蔵し、ローカル状態に反映して保存する
   saveable?: boolean;
-  // 保存プラン画面で目的地を手動追加する
-  onAddItem?: (dayIndex: number, name: string, time?: string) => void;
+  // 保存プラン画面で目的地を手動追加する（insertIndex 指定で途中挿入、省略時は末尾）
+  onAddItem?: (dayIndex: number, name: string, time?: string, insertIndex?: number) => void;
   // 保存プラン画面で行程を編集・削除する
   onEditItem?: (dayIndex: number, itemIndex: number, name: string, time?: string) => void;
   onDeleteItem?: (dayIndex: number, itemIndex: number) => void;
@@ -58,7 +58,8 @@ export function ItineraryTimeline({
   const [visited, setVisited] = useState<Record<string, boolean>>({});
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [addingDay, setAddingDay] = useState<number | null>(null);
+  // 追加フォームの位置。index は挿入位置（null なら日の末尾）
+  const [addingAt, setAddingAt] = useState<{ day: number; index: number | null } | null>(null);
   const [newName, setNewName] = useState("");
   const [newTime, setNewTime] = useState("");
   // 編集中の行程。キーは `${dayIndex}-${itemIndex}`
@@ -103,7 +104,8 @@ export function ItineraryTimeline({
   const addHandler =
     onAddItem ??
     (saveable
-      ? (di: number, name: string, time?: string) => applyLocal(withAddedItem(view, di, name, time))
+      ? (di: number, name: string, time?: string, insertIndex?: number) =>
+          applyLocal(withAddedItem(view, di, name, time, insertIndex))
       : undefined);
   const editHandler =
     onEditItem ??
@@ -122,13 +124,19 @@ export function ItineraryTimeline({
   const [chatItemKey, setChatItemKey] = useState<string | null>(null);
   const [chatGhOverride, setChatGhOverride] = useState<string | null>(null);
 
-  const submitAddItem = (dayIndex: number) => {
-    const name = newName.trim();
-    if (!name || !addHandler) return;
-    addHandler(dayIndex, name, newTime.trim() || undefined);
+  const openAddForm = (day: number, index: number | null) => {
+    setAddingAt({ day, index });
     setNewName("");
     setNewTime("");
-    setAddingDay(null);
+  };
+
+  const submitAddItem = () => {
+    const name = newName.trim();
+    if (!name || !addHandler || !addingAt) return;
+    addHandler(addingAt.day, name, newTime.trim() || undefined, addingAt.index ?? undefined);
+    setNewName("");
+    setNewTime("");
+    setAddingAt(null);
   };
 
   const startEdit = (key: string, item: ItineraryItem) => {
@@ -362,53 +370,49 @@ export function ItineraryTimeline({
                       )}
                     </div>
                   </div>
+
+                  {/* 工程の途中への挿入（この項目の直後に追加） */}
+                  {addHandler &&
+                    ii < day.items.length - 1 &&
+                    (addingAt?.day === di && addingAt?.index === ii + 1 ? (
+                      <AddItemForm
+                        newName={newName}
+                        newTime={newTime}
+                        setNewName={setNewName}
+                        setNewTime={setNewTime}
+                        onSubmit={submitAddItem}
+                        onCancel={() => setAddingAt(null)}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => openAddForm(di, ii + 1)}
+                        className="mt-1.5 text-[10px] text-gray-300 hover:text-blue-600 transition-colors"
+                        aria-label={`${item.name} の次に目的地を追加`}
+                      >
+                        ＋ ここに追加
+                      </button>
+                    ))}
                 </li>
               );
             })}
           </ol>
 
-          {/* 目的地の手動追加（チャット内・保存プラン画面の両方） */}
+          {/* 目的地の手動追加（日の末尾。チャット内・保存プラン画面の両方） */}
           {addHandler &&
-            (addingDay === di ? (
-              <div className="mt-3 ml-3 flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && submitAddItem(di)}
-                  placeholder="スポット名（例: 清水寺）"
-                  className="flex-1 min-w-[10rem] px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
-                  autoFocus
+            (addingAt?.day === di && addingAt?.index === null ? (
+              <div className="mt-3 ml-3">
+                <AddItemForm
+                  newName={newName}
+                  newTime={newTime}
+                  setNewName={setNewName}
+                  setNewTime={setNewTime}
+                  onSubmit={submitAddItem}
+                  onCancel={() => setAddingAt(null)}
                 />
-                <input
-                  type="text"
-                  value={newTime}
-                  onChange={(e) => setNewTime(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && submitAddItem(di)}
-                  placeholder="時刻(任意)"
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
-                />
-                <button
-                  onClick={() => submitAddItem(di)}
-                  disabled={!newName.trim()}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
-                >
-                  追加
-                </button>
-                <button
-                  onClick={() => setAddingDay(null)}
-                  className="px-2 py-1.5 text-gray-500 text-sm"
-                >
-                  キャンセル
-                </button>
               </div>
             ) : (
               <button
-                onClick={() => {
-                  setAddingDay(di);
-                  setNewName("");
-                  setNewTime("");
-                }}
+                onClick={() => openAddForm(di, null)}
                 className="mt-3 ml-3 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors"
               >
                 ＋ 目的地を追加
@@ -433,6 +437,55 @@ export function ItineraryTimeline({
           </a>
         </div>
       )}
+    </div>
+  );
+}
+
+// 目的地の追加フォーム（末尾追加・途中挿入の両方で使う）
+function AddItemForm({
+  newName,
+  newTime,
+  setNewName,
+  setNewTime,
+  onSubmit,
+  onCancel,
+}: {
+  newName: string;
+  newTime: string;
+  setNewName: (v: string) => void;
+  setNewTime: (v: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <input
+        type="text"
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+        placeholder="スポット名（例: 清水寺）"
+        className="flex-1 min-w-[10rem] px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+        autoFocus
+      />
+      <input
+        type="text"
+        value={newTime}
+        onChange={(e) => setNewTime(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+        placeholder="時刻(任意)"
+        className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+      />
+      <button
+        onClick={onSubmit}
+        disabled={!newName.trim()}
+        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
+      >
+        追加
+      </button>
+      <button onClick={onCancel} className="px-2 py-1.5 text-gray-500 text-sm">
+        キャンセル
+      </button>
     </div>
   );
 }

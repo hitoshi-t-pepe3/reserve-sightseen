@@ -56,6 +56,8 @@ export function ChatWindow() {
   const [locating, setLocating] = useState(false);
   // 旅行の移動手段の希望。選択中は毎メッセージでバックエンドに渡る
   const [transport, setTransport] = useState<Transport | null>(null);
+  // 散歩・ドライブで最後に出発地点へ戻る周回コースにするか
+  const [returnToStart, setReturnToStart] = useState(false);
   // 周辺チャット（Nostr）。ON/OFF は localStorage に保持し次回起動時に復元
   const [nearbyChatOn, setNearbyChatOn] = useState(false);
   // チャンネルID（geohash）の手動指定。位置情報の誤差で Bitchat と隣のブロックに
@@ -124,7 +126,10 @@ export function ChatWindow() {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setUserLocation(loc);
         setLocating(false);
-        sendMessage(NEARBY_STARTERS[kind], loc);
+        const starter = returnToStart
+          ? `${NEARBY_STARTERS[kind]}。最後は出発地点（今いる場所）に戻る周回コースにして`
+          : NEARBY_STARTERS[kind];
+        sendMessage(starter, loc);
       },
       () => {
         setLocating(false);
@@ -132,7 +137,7 @@ export function ChatWindow() {
       },
       { enableHighAccuracy: false, timeout: 10000 }
     );
-  }, [sendMessage]);
+  }, [sendMessage, returnToStart]);
 
   // PWA ショートカット（ホーム画面アイコン長押し）からの起動:
   // /?mode=walk → 散歩モード、/?mode=hotel → 宿泊検索パネル
@@ -308,6 +313,18 @@ export function ChatWindow() {
               className="px-3 py-2 bg-teal-600 text-white rounded-full text-sm hover:bg-teal-700 disabled:opacity-60 transition-colors font-medium"
             >
               {locating ? "現在地を取得中..." : "🚗 いまからドライブ"}
+            </button>
+            <button
+              onClick={() => setReturnToStart((v) => !v)}
+              className={`px-3 py-2 rounded-full text-sm border transition-colors ${
+                returnToStart
+                  ? "bg-green-50 text-green-800 border-green-500 font-medium"
+                  : "bg-white text-gray-500 border-gray-300 hover:bg-gray-50"
+              }`}
+              aria-pressed={returnToStart}
+              title="散歩・ドライブの最後に出発地点へ戻る周回コースにする"
+            >
+              🔁 出発地に戻る{returnToStart ? " ✓" : ""}
             </button>
             {THEMES.map((theme) => (
               <button
