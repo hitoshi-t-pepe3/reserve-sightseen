@@ -62,6 +62,7 @@ def _system_instruction() -> str:
 - **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
 - **ドライブ**（現在地あり・車で回りたい）: search_spots_nearby を radius_m=15000 程度で呼び、車で半日〜1日で回れる3〜6箇所を選んで create_itinerary（mode=drive、days は1要素）でドライブコースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
 - 散歩・ドライブ共通: 各スポットに必ず time（目安時刻）と durationMin（滞在の目安分）を入れる。ユーザーが出発地点・スタート地点に戻ることを希望したら、最後の項目として name=「出発地点へ戻る」・category=move・lat/lng=現在地の座標（システム情報の値）を入れる。
+- ユーザーが「全体で約◯分」「◯時間くらいで」のように全体の所要時間を指定した場合、スポット数・各滞在時間・移動時間の目安を合計してその時間に収まるようスポット数を調整すること（多すぎるスポットを詰め込まない）。
 
 ## 移動手段
 - ユーザーが旅行の移動手段（電車・バス・車・飛行機）を指定・希望したら、create_itinerary の transport に渡してください（電車=train, バス=bus, 車=car, 飛行機=plane）。経路リンクの種類がそれに合わせて切り替わります。
@@ -95,6 +96,11 @@ _SEARCH_HOTELS_DECL = FunctionDeclaration(
             "checkout": {"type": "string", "description": "チェックアウト日 YYYY-MM-DD"},
             "adults": {"type": "integer", "description": "大人の人数（デフォルト2）"},
             "onsen": {"type": "boolean", "description": "true で温泉宿に絞る"},
+            "sort_by": {
+                "type": "string",
+                "enum": ["price_asc", "price_desc", "rating"],
+                "description": "並び順。price_asc=安い順(デフォルト)、price_desc=高い順、rating=評価が高い順（のんびり・リラックス重視の希望に）",
+            },
         },
         "required": ["location"],
     },
@@ -356,6 +362,7 @@ async def _run_search_hotels(args: Dict[str, Any], state: Dict[str, Any]) -> dic
     checkin = args.get("checkin") or None
     checkout = args.get("checkout") or None
     onsen = bool(args.get("onsen"))
+    sort_by = args.get("sort_by") if args.get("sort_by") in ("price_asc", "price_desc", "rating") else "price_asc"
     try:
         adults = int(args.get("adults") or 2)
     except (TypeError, ValueError):
@@ -384,6 +391,7 @@ async def _run_search_hotels(args: Dict[str, Any], state: Dict[str, Any]) -> dic
             hits=8,
             realistic_price_limit=5,
             squeeze_condition="onsen" if onsen else None,
+            sort_by=sort_by,
         )
     except Exception as e:
         return {"error": f"ホテル検索に失敗しました: {e}"}

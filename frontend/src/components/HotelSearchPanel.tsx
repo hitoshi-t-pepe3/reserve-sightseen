@@ -1,8 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { HotelBasicInfo, searchHotelsByArea, buildReserveUrl } from "@/lib/api";
+import { HotelBasicInfo, HotelSortBy, searchHotelsByArea, buildReserveUrl } from "@/lib/api";
 import { HotelCard } from "./HotelCard";
+
+const SORT_OPTIONS: { value: HotelSortBy; label: string }[] = [
+  { value: "price_asc", label: "料金が安い順" },
+  { value: "price_desc", label: "料金が高い順" },
+  { value: "rating", label: "評価が高い順（リラックス重視）" },
+];
 
 interface HotelSearchPanelProps {
   isOpen: boolean;
@@ -29,19 +35,17 @@ export function HotelSearchPanel({
   const [checkin, setCheckin] = useState(initialCheckin ?? "");
   const [checkout, setCheckout] = useState(initialCheckout ?? "");
   const [adults, setAdults] = useState(initialAdults);
+  const [sortBy, setSortBy] = useState<HotelSortBy>("price_asc");
   const [results, setResults] = useState<HotelBasicInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const runSearch = async (nextSortBy: HotelSortBy = sortBy) => {
     if (!query.trim()) return;
-
     setLoading(true);
     setError(null);
-
     try {
       const data = await searchHotelsByArea(
         query.trim(),
@@ -49,7 +53,8 @@ export function HotelSearchPanel({
         checkout || undefined,
         adults,
         rooms,
-        20
+        20,
+        nextSortBy
       );
 
       // APIレスポンスの構造を変換: {hotelBasicInfo, hotelRatingInfo} -> HotelBasicInfo
@@ -64,6 +69,16 @@ export function HotelSearchPanel({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await runSearch();
+  };
+
+  const handleSortChange = async (next: HotelSortBy) => {
+    setSortBy(next);
+    if (results.length > 0) await runSearch(next);
   };
 
   return (
@@ -127,6 +142,18 @@ export function HotelSearchPanel({
             >
               {[1, 2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>{n}名</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-gray-600">
+            並び順
+            <select
+              value={sortBy}
+              onChange={(e) => handleSortChange(e.target.value as HotelSortBy)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg"
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </label>

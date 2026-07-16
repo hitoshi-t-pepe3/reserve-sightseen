@@ -114,6 +114,7 @@ async def search_by_area(
         True, description="施設検索APIの理論上最安値ではなく、空室検索APIから限定特典プランを除いた実勢最安値を取得する"
     ),
     realistic_price_limit: int = Query(10, description="実勢最安値を取得する上位件数（空室API呼び出し回数に直結するため上限あり）", le=20),
+    sort_by: str = Query("price_asc", description="並び順: price_asc(安い順)/price_desc(高い順)/rating(評価優先)"),
 ):
     """エリア名でホテル検索。主要都市以外は Google Places で座標に解決して検索する"""
     try:
@@ -123,6 +124,7 @@ async def search_by_area(
                 adults=adults, rooms=rooms, hits=hits,
                 use_realistic_price=use_realistic_price,
                 realistic_price_limit=realistic_price_limit,
+                sort_by=sort_by,
             )
         except ValueError:
             # 内部マップにないエリア名 → ジオコーディングにフォールバック
@@ -137,6 +139,7 @@ async def search_by_area(
                 adults=adults, rooms=rooms, hits=hits,
                 use_realistic_price=use_realistic_price,
                 realistic_price_limit=realistic_price_limit,
+                sort_by=sort_by,
             )
         return {"hotels": hotels, "count": len(hotels)}
     except HTTPException:
@@ -159,6 +162,7 @@ async def search_by_location(
         True, description="施設検索APIの理論上最安値ではなく、空室検索APIから限定特典プランを除いた実勢最安値を取得する"
     ),
     realistic_price_limit: int = Query(10, description="実勢最安値を取得する上位件数（空室API呼び出し回数に直結するため上限あり）", le=20),
+    sort_by: str = Query("price_asc", description="並び順: price_asc(安い順)/price_desc(高い順)/rating(評価優先)"),
 ):
     """緯度経度でホテル検索"""
     try:
@@ -167,6 +171,7 @@ async def search_by_location(
             adults=adults, rooms=rooms, hits=hits,
             use_realistic_price=use_realistic_price,
             realistic_price_limit=realistic_price_limit,
+            sort_by=sort_by,
         )
         return {"hotels": hotels, "count": len(hotels)}
     except Exception as e:

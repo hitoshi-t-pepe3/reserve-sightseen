@@ -147,6 +147,7 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                       handleEditItem(plan, dayIndex, itemIndex, name, time)
                     }
                     onDeleteItem={(dayIndex, itemIndex) => handleDeleteItem(plan, dayIndex, itemIndex)}
+                    onSaveWholeItinerary={(next) => setPlans(updatePlan(plan.id, next))}
                   />
                 </div>
               )}

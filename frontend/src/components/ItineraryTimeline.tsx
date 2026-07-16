@@ -12,6 +12,7 @@ import {
 } from "@/lib/planStorage";
 import { NipponTravelAd } from "./NipponTravelAd";
 import { NearbyChat } from "./NearbyChat";
+import { ItineraryMapEditor } from "./ItineraryMapEditor";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
@@ -44,6 +45,9 @@ interface ItineraryTimelineProps {
   // 保存プラン画面で行程を編集・削除する
   onEditItem?: (dayIndex: number, itemIndex: number, name: string, time?: string) => void;
   onDeleteItem?: (dayIndex: number, itemIndex: number) => void;
+  // 地図編集モード（🗺️）での保存。編集モードは丸ごとの Itinerary を返すため
+  // 項目単位の callback とは別に、置き換え専用の callback を受け取る
+  onSaveWholeItinerary?: (next: Itinerary) => void;
 }
 
 // 日程表のタイムライン表示。
@@ -54,8 +58,10 @@ export function ItineraryTimeline({
   onAddItem,
   onEditItem,
   onDeleteItem,
+  onSaveWholeItinerary,
 }: ItineraryTimelineProps) {
   const [visited, setVisited] = useState<Record<string, boolean>>({});
+  const [showMapEditor, setShowMapEditor] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   // 追加フォームの位置。index は挿入位置（null なら日の末尾）
@@ -118,6 +124,7 @@ export function ItineraryTimeline({
     (saveable
       ? (di: number, ii: number) => applyLocal(withDeletedItem(view, di, ii))
       : undefined);
+  const wholeSaveHandler = onSaveWholeItinerary ?? (saveable ? applyLocal : undefined);
   // 削除は2タップ確認（iOS の PWA では confirm() が使えないためダイアログは使わない）
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   // 地点の「💬」で開くインラインチャット（開いている項目のキーと、チャンネルの手動上書き）
@@ -170,16 +177,37 @@ export function ItineraryTimeline({
           </p>
           <h3 className="font-semibold">{view.title}</h3>
         </div>
-        {saveable && (
-          <button
-            onClick={handleSave}
-            disabled={saveState === "saved"}
-            className="shrink-0 px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
-          >
-            {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
-          </button>
-        )}
+        <div className="flex gap-1.5 shrink-0">
+          {wholeSaveHandler && (
+            <button
+              onClick={() => setShowMapEditor(true)}
+              className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-medium transition-colors"
+            >
+              🗺️ 地図で編集
+            </button>
+          )}
+          {saveable && (
+            <button
+              onClick={handleSave}
+              disabled={saveState === "saved"}
+              className="px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
+            >
+              {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {showMapEditor && (
+        <ItineraryMapEditor
+          itinerary={view}
+          onSave={(next) => {
+            wholeSaveHandler?.(next);
+            setShowMapEditor(false);
+          }}
+          onClose={() => setShowMapEditor(false)}
+        />
+      )}
       {saveError && (
         <p className="px-4 py-2 bg-amber-50 text-amber-800 text-xs border-b border-amber-200">
           {saveError}

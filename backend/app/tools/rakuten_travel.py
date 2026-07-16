@@ -279,7 +279,7 @@ class RakutenTravelTool:
     async def search_by_area(self, area_name: str, checkin: Optional[str] = None, checkout: Optional[str] = None,
                              adults: int = 2, rooms: int = 1, hits: int = 20,
                              use_realistic_price: bool = True, realistic_price_limit: int = 10,
-                             squeeze_condition: Optional[str] = None) -> list:
+                             squeeze_condition: Optional[str] = None, sort_by: str = "price_asc") -> list:
         """エリア名で検索（主要都市の緯度経度を内部マップから取得）"""
         coords = AREA_COORDS.get(area_name)
         if not coords:
@@ -293,6 +293,7 @@ class RakutenTravelTool:
             use_realistic_price=use_realistic_price,
             realistic_price_limit=realistic_price_limit,
             squeeze_condition=squeeze_condition,
+            sort_by=sort_by,
         )
 
     async def search_by_location(self, lat: float, lng: float, radius: float = 3.0,
@@ -300,12 +301,18 @@ class RakutenTravelTool:
                                   adults: int = 2, rooms: int = 1, hits: int = 20,
                                   use_realistic_price: bool = True,
                                   realistic_price_limit: int = 10,
-                                  squeeze_condition: Optional[str] = None) -> list:
+                                  squeeze_condition: Optional[str] = None,
+                                  sort_by: str = "price_asc") -> list:
         """緯度経度で検索（世界測地系）
 
         use_realistic_price=True の場合、上位 realistic_price_limit 件について
         空室検索APIから実勢最安値（限定特典プラン除く）を取得し hotelMinCharge を差し替える。
+
+        sort_by: "price_asc"（安い順・デフォルト）/ "price_desc"（高い順）/
+                 "rating"（評価・レビュー件数優先、リラックスできる高評価宿を上位に）。
+                 rating は楽天APIの sort パラメータに無いため取得後にこちらで並べ替える。
         """
+        api_sort = "-roomCharge" if sort_by == "price_desc" else "+roomCharge"
         params = RakutenHotelSearchParams(
             latitude=lat,
             longitude=lng,
@@ -316,7 +323,7 @@ class RakutenTravelTool:
             adult_num=adults,
             room_num=rooms,
             hits=hits,
-            sort="+roomCharge",
+            sort=api_sort,
             squeeze_condition=squeeze_condition,
         )
         result = await self.search_hotels(params)
@@ -336,6 +343,14 @@ class RakutenTravelTool:
                 url = build_jalan_search_url(basic_info["hotelName"])
                 if url:
                     basic_info["jalanSearchUrl"] = url
+
+        if sort_by == "rating":
+            def rating_key(hotel: dict) -> tuple:
+                basic = hotel.get("hotelBasicInfo") or {}
+                avg = basic.get("reviewAverage") or 0
+                count = basic.get("reviewCount") or 0
+                return (avg, count)
+            hotels.sort(key=rating_key, reverse=True)
 
         return hotels
 

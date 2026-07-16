@@ -12,6 +12,9 @@ export interface HotelBasicInfo {
   address2: string;
   hotelThumbnailUrl?: string;
   hotelImageUrl?: string;
+  // 部屋の写真（楽天APIのレスポンスにそのまま含まれる。ホテル外観と別カットのため
+  // 画像スライドの2枚目として使う）
+  roomImageUrl?: string;
   reviewCount?: number;
   reviewAverage?: number;
   hotelSpecial?: string;
@@ -64,19 +67,23 @@ export interface VacancyResponse {
   count: number;
 }
 
+export type HotelSortBy = 'price_asc' | 'price_desc' | 'rating';
+
 export async function searchHotelsByArea(
   area: string,
   checkin?: string,
   checkout?: string,
   adults: number = 2,
   rooms: number = 1,
-  hits: number = 20
+  hits: number = 20,
+  sortBy: HotelSortBy = 'price_asc'
 ): Promise<HotelSearchResponse> {
   const params = new URLSearchParams({
     area,
     adults: String(adults),
     rooms: String(rooms),
     hits: String(hits),
+    sort_by: sortBy,
   });
   if (checkin) params.append('checkin', checkin);
   if (checkout) params.append('checkout', checkout);
@@ -236,4 +243,27 @@ export async function getHotelVacancy(
   });
   if (!res.ok) throw new Error(`Vacancy failed: ${res.status}`);
   return res.json();
+}
+
+// Google Places 検索結果（バックエンドは snake_case のまま返す）
+export interface PlaceSearchResult {
+  place_id: string;
+  name: string;
+  address: string;
+  location: { lat: number; lng: number };
+  rating?: number | null;
+  user_ratings_total?: number | null;
+}
+
+// 工程の地図編集モードで「目的地を検索して座標を確認してから追加する」ために使う
+export async function searchPlaces(
+  query: string,
+  near?: { lat: number; lng: number }
+): Promise<PlaceSearchResult[]> {
+  const params = new URLSearchParams({ query });
+  if (near) params.append('location', `${near.lat},${near.lng}`);
+  const res = await fetch(`${API_BASE}/api/places/search?${params}`);
+  if (!res.ok) throw new Error(`Place search failed: ${res.status}`);
+  const data = await res.json();
+  return data.results || [];
 }

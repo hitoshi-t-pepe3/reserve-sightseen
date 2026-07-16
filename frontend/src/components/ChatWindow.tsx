@@ -43,6 +43,9 @@ const NEARBY_STARTERS = {
   drive: "いまいる場所の周辺で、車で回れるドライブプランを作って",
 } as const;
 
+// 散歩・ドライブの全体所要時間の選択肢（分）。0 は「指定なし」
+const DURATION_OPTIONS = [0, 60, 90, 120, 180, 240] as const;
+
 export function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,6 +61,8 @@ export function ChatWindow() {
   const [transport, setTransport] = useState<Transport | null>(null);
   // 散歩・ドライブで最後に出発地点へ戻る周回コースにするか
   const [returnToStart, setReturnToStart] = useState(false);
+  // 散歩・ドライブの全体所要時間の希望（分・0は指定なし）
+  const [durationMinutes, setDurationMinutes] = useState(0);
   // 周辺チャット（Nostr）。ON/OFF は localStorage に保持し次回起動時に復元
   const [nearbyChatOn, setNearbyChatOn] = useState(false);
   // チャンネルID（geohash）の手動指定。位置情報の誤差で Bitchat と隣のブロックに
@@ -126,9 +131,9 @@ export function ChatWindow() {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setUserLocation(loc);
         setLocating(false);
-        const starter = returnToStart
-          ? `${NEARBY_STARTERS[kind]}。最後は出発地点（今いる場所）に戻る周回コースにして`
-          : NEARBY_STARTERS[kind];
+        let starter = NEARBY_STARTERS[kind];
+        if (returnToStart) starter += "。最後は出発地点（今いる場所）に戻る周回コースにして";
+        if (durationMinutes > 0) starter += `。全体で約${durationMinutes}分で収まるようにして`;
         sendMessage(starter, loc);
       },
       () => {
@@ -137,7 +142,7 @@ export function ChatWindow() {
       },
       { enableHighAccuracy: false, timeout: 10000 }
     );
-  }, [sendMessage, returnToStart]);
+  }, [sendMessage, returnToStart, durationMinutes]);
 
   // PWA ショートカット（ホーム画面アイコン長押し）からの起動:
   // /?mode=walk → 散歩モード、/?mode=hotel → 宿泊検索パネル
@@ -326,6 +331,23 @@ export function ChatWindow() {
             >
               🔁 出発地に戻る{returnToStart ? " ✓" : ""}
             </button>
+            <label className="flex items-center gap-1 px-3 py-2 rounded-full text-sm border border-gray-300 bg-white text-gray-600">
+              ⏱️
+              <select
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                className="bg-transparent focus:outline-none"
+                aria-label="散歩・ドライブの全体所要時間"
+              >
+                {DURATION_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 0
+                      ? "時間指定なし"
+                      : `約${m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ""}` : `${m}分`}`}
+                  </option>
+                ))}
+              </select>
+            </label>
             {THEMES.map((theme) => (
               <button
                 key={theme.label}
