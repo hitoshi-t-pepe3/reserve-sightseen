@@ -89,7 +89,9 @@ build_and_deploy_backend() {
   docker buildx build --platform linux/amd64 -t "$backend_image" ./backend --load
   docker push "$backend_image"
 
-  # CORS_ORIGINS はここでは仮値。--frontend-only 実行時やフル実行時にステップ末尾で上書きする
+  # CORS_ORIGINS はここでは仮値。--set-env-vars は全環境変数を置き換えるため、
+  # 呼び出し側は必ず update_backend_cors で実際の Frontend URL に上書きすること
+  # （--backend-only 単体で忘れると本番の CORS が壊れる。過去に実際に発生した事故）
   log "=== Backend Deploy to Cloud Run ==="
   gcloud run deploy "$BACKEND_SERVICE" \
     --image="$backend_image" \
@@ -204,6 +206,9 @@ if [[ "$MODE" == "--backend-only" ]]; then
   FRONTEND_URL=$(service_url "$FRONTEND_SERVICE") \
     || error "Frontend が見つかりません。先に ./deploy.sh（引数なし）で一度フルデプロイしてください。"
   log "Frontend URL（既存）: $FRONTEND_URL"
+  # build_and_deploy_backend は --set-env-vars で CORS_ORIGINS を仮値
+  # (http://localhost:3000) に戻してしまうため、既存の Frontend URL で必ず上書きする
+  update_backend_cors "$FRONTEND_URL"
   smoke_test "$BACKEND_URL" "$FRONTEND_URL"
   print_summary
   exit 0
