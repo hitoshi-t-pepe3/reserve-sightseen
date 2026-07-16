@@ -506,6 +506,14 @@ def _dir_url(origin: Optional[str], dest: str, travelmode: Optional[str]) -> str
     return url
 
 
+def _fallback_current_location(state: Dict[str, Any]) -> tuple:
+    loc = state.get("user_location") or {}
+    try:
+        return float(loc["lat"]), float(loc["lng"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
 async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     # タイトル・日ラベルにも誤った曜日が混入するため本文と同じ除去を通す
     title = _clean_response_text(str(args.get("title") or "プラン")).strip()
@@ -572,10 +580,16 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
                 elif prev_query:
                     out["navUrl"] = _dir_url(prev_query, query, travelmode)
                 prev_query = query
-            elif from_current and lat is not None and lng is not None:
-                # 座標つきの移動（「出発地点へ戻る」等）: 現在地からその座標への経路。
-                # 地名では検索できないため座標を直接目的地にする
-                out["navUrl"] = _dir_url(None, f"{lat},{lng}", travelmode)
+            elif from_current and "戻る" in name:
+                # 「出発地点へ戻る」等の周回コース末尾の move 項目。
+                # モデルが lat/lng を tool call に渡し忘れることがあるため、
+                # 実際にユーザーから受け取った現在地座標をサーバー側で補完する
+                if lat is None or lng is None:
+                    lat, lng = _fallback_current_location(state)
+                    out["lat"], out["lng"] = lat, lng
+                if lat is not None and lng is not None:
+                    # 地名では検索できないため座標を直接目的地にする
+                    out["navUrl"] = _dir_url(None, f"{lat},{lng}", travelmode)
             items_out.append(out)
 
         if items_out:
@@ -689,6 +703,7 @@ async def chat_with_gemini(
             "search_context": None,
             "itinerary": None,
             "tool_called": False,
+            "user_location": user_location,
         }
         attempt_message = message
         if _attempt > 0:
