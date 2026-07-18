@@ -13,6 +13,7 @@ import {
 import { NipponTravelAd } from "./NipponTravelAd";
 import { NearbyChat } from "./NearbyChat";
 import { ItineraryMapEditor } from "./ItineraryMapEditor";
+import { trackAffiliateClick } from "@/lib/analytics";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
 const CATEGORY_META: Record<ItineraryItem["category"], { icon: string; label: string }> = {
@@ -460,6 +461,9 @@ export function ItineraryTimeline({
             target="_blank"
             rel="noopener noreferrer sponsored"
             className="block text-center px-4 py-2.5 bg-[#bf0000] hover:bg-[#a50000] text-white rounded-xl text-sm font-medium transition-colors"
+            onClick={() =>
+              trackAffiliateClick("rakuten", { label: view.booking!.label })
+            }
           >
             {view.booking.label}
           </a>

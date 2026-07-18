@@ -22,6 +22,8 @@ REGION="${REGION:-asia-northeast1}"
 REPO_NAME="reserve-sightseen"
 BACKEND_SERVICE="reserve-backend"
 FRONTEND_SERVICE="reserve-frontend"
+# GA4 計測ID（任意。未設定ならフロントは計測タグを埋め込まない）
+GA_MEASUREMENT_ID="${GA_MEASUREMENT_ID:-}"
 
 # 色付き出力
 RED='\033[0;31m'
@@ -120,6 +122,7 @@ build_and_deploy_frontend() {
   local frontend_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/frontend:latest"
   docker buildx build --platform linux/amd64 \
     --build-arg NEXT_PUBLIC_API_BASE="$backend_url" \
+    --build-arg NEXT_PUBLIC_GA_MEASUREMENT_ID="$GA_MEASUREMENT_ID" \
     -t "$frontend_image" ./frontend --load
   docker push "$frontend_image"
 
@@ -134,7 +137,7 @@ build_and_deploy_frontend() {
     --cpu=1 \
     --min-instances=0 \
     --max-instances=10 \
-    --set-env-vars="NEXT_PUBLIC_API_BASE=$backend_url" \
+    --set-env-vars="NEXT_PUBLIC_API_BASE=$backend_url,NEXT_PUBLIC_GA_MEASUREMENT_ID=$GA_MEASUREMENT_ID" \
     --project="$PROJECT_ID"
 
   FRONTEND_URL=$(service_url "$FRONTEND_SERVICE")

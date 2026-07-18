@@ -2,6 +2,7 @@
 
 import { HotelBasicInfo } from "@/lib/api";
 import { HotelImageCarousel } from "./HotelImageCarousel";
+import { trackAffiliateClick, trackEvent } from "@/lib/analytics";
 
 interface HotelCardProps {
   hotel: HotelBasicInfo;
@@ -106,20 +107,26 @@ export function HotelCard({
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full py-2 bg-red-600 text-white text-center rounded-lg hover:bg-red-700 transition-colors text-sm font-medium mb-2"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              trackAffiliateClick("rakuten", { surface: "hotel_card" });
+            }}
           >
             楽天トラベルで予約
           </a>
         )}
 
-        {/* Jalan Compare Link */}
+        {/* Jalan Compare Link（非アフィリエイト深いリンク。将来 LinkSwitch 導入判断のためクリック数だけ計測） */}
         {hotel.jalanSearchUrl && (
           <a
             href={hotel.jalanSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="block w-full py-2 border border-orange-400 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium mb-2"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              trackEvent("jalan_deep_link_click");
+            }}
           >
             じゃらんでも見る（価格比較）
           </a>
