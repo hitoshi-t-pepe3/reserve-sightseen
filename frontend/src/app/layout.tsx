@@ -3,9 +3,15 @@ import Script from "next/script";
 import { GTM_ID } from "@/lib/analytics";
 import "./globals.css";
 
+const SITE_URL = "https://reserve-frontend-aizhcwfypa-an.a.run.app";
+const SITE_TITLE = "ReserveSightseen — AI旅行プランナー";
+const SITE_DESCRIPTION =
+  "チャットで旅行プラン作成からホテル予約まで。散歩プラン・ドライブコース・推し活遠征にも対応";
+
 export const metadata: Metadata = {
-  title: "ReserveSightseen",
-  description: "AI 旅行プランナー — 行き先検索から予約まで",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
   manifest: "/manifest.json",
   icons: {
     icon: "/icon-192.png",
@@ -15,6 +21,21 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "default",
     title: "旅プラン",
+  },
+  openGraph: {
+    type: "website",
+    locale: "ja_JP",
+    url: SITE_URL,
+    siteName: SITE_TITLE,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [{ url: "/icon-512.png", width: 512, height: 512 }],
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/icon-512.png"],
   },
 };
 
