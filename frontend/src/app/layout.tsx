@@ -53,7 +53,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <head>
-        {GTM_ID && (
+        {GTM_ID ? (
           <Script id="gtm-init" strategy="afterInteractive">
             {`
               (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -63,10 +63,10 @@ export default function RootLayout({
               })(window,document,'script','dataLayer','${GTM_ID}');
             `}
           </Script>
-        )}
+        ) : null}
       </head>
       <body className="antialiased">
-        {GTM_ID && (
+        {GTM_ID ? (
           <noscript>
             <iframe
               src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`}
@@ -75,7 +75,7 @@ export default function RootLayout({
               style={{ display: "none", visibility: "hidden" }}
             />
           </noscript>
-        )}
+        ) : null}
         {children}
         {/* Service Worker 登録（PWAインストール用・キャッシュなしのパススルー実装） */}
         <script
