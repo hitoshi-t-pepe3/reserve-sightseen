@@ -84,12 +84,10 @@ export default function RootLayout({
           }}
         />
         {/* バリューコマース LinkSwitch: 提携済み広告主（じゃらん等）へのリンクを自動でアフィリエイトリンクに変換 */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `var vc_pid = "892664601";`,
-          }}
-        />
-        <script src="//aml.valuecommerce.com/vcdal.js" async />
+        <Script id="linkswitch-init" strategy="afterInteractive">
+          {`var vc_pid = "892664601";`}
+        </Script>
+        <Script src="//aml.valuecommerce.com/vcdal.js" strategy="afterInteractive" />
       </body>
     </html>
   );
