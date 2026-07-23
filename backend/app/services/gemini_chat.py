@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from datetime import datetime
+from math import atan2, cos, radians, sin, sqrt
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
@@ -59,7 +60,7 @@ def _system_instruction() -> str:
 - **乗り鉄**: 乗りたい路線・列車・区間を確認。始発や乗り換えに便利な駅名で search_hotels し、駅近を優先。プランは列車の乗車体験を軸に組む。
 - **聖地巡礼**: 作品名を確認し、search_tourist_spots の query に「作品名 聖地」を渡して検索。結果が乏しければ舞台になった土地名で再検索し、巡礼順のモデルコースにする。
 - **温泉**: search_hotels の onsen=true を使い、温泉宿だけに絞る。
-- **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
+- **散歩**（現在地あり・宿泊なし）: search_spots_nearby を呼び、徒歩で2〜3時間で回れる3〜5箇所を選んで create_itinerary（mode=walk、days は1要素）で散歩コースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。search_spots_nearby の結果は現在地に近い順に並んでおり、各スポットに distanceM（距離メートル）・walkMinutes（徒歩分）が付いている。**最初の目的地は必ず walkMinutes が5以下（現在地から徒歩5分以内）の候補から選ぶこと。** 2件目以降は徒歩5分の制約なしで、魅力・順路を優先して選んでよい。
 - **ドライブ**（現在地あり・車で回りたい）: search_spots_nearby を radius_m=15000 程度で呼び、車で半日〜1日で回れる3〜6箇所を選んで create_itinerary（mode=drive、days は1要素）でドライブコースを登録する。ホテル検索はしない（泊まりたいと言われた場合を除く）。
 - 散歩・ドライブ共通: 各スポットに必ず time（目安時刻）と durationMin（滞在の目安分）を入れる。ユーザーが出発地点・スタート地点に戻ることを希望したら、最後の項目として name=「出発地点へ戻る」・category=move・lat/lng=現在地の座標（システム情報の値）を入れる。
 - ユーザーが「全体で約◯分」「◯時間くらいで」のように全体の所要時間を指定した場合、スポット数・各滞在時間・移動時間の目安を合計してその時間に収まるようスポット数を調整すること（多すぎるスポットを詰め込まない）。
@@ -341,20 +342,44 @@ def _map_url(name: str, address: str = "") -> str:
     return f"https://www.google.com/maps/search/?api=1&query={query}"
 
 
-def _compact_spots(spots: list) -> list[dict]:
-    return [
-        {
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """2点間の直線距離（メートル）"""
+    r = 6371000
+    phi1, phi2 = radians(lat1), radians(lat2)
+    dphi = radians(lat2 - lat1)
+    dlambda = radians(lng2 - lng1)
+    a = sin(dphi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(dlambda / 2) ** 2
+    return 2 * r * atan2(sqrt(a), sqrt(1 - a))
+
+
+# 徒歩の概算速度（分速）。5分以内の判定などに使う目安値
+_WALK_M_PER_MIN = 80
+
+
+def _compact_spots(spots: list, origin: Optional[tuple] = None) -> list[dict]:
+    rows = []
+    for s in spots:
+        lat = (s.location or {}).get("lat")
+        lng = (s.location or {}).get("lng")
+        row = {
             "name": s.name,
             "rating": s.rating,
             "reviews": s.user_ratings_total,
             "address": s.address,
             "mapUrl": _map_url(s.name, s.address),
             # 日程表の地点ごとの周辺チャット（geohash チャンネル）用
-            "lat": (s.location or {}).get("lat"),
-            "lng": (s.location or {}).get("lng"),
+            "lat": lat,
+            "lng": lng,
         }
-        for s in spots[:8]
-    ]
+        if origin and lat is not None and lng is not None:
+            dist = _haversine_m(origin[0], origin[1], lat, lng)
+            row["distanceM"] = round(dist)
+            row["walkMinutes"] = max(1, round(dist / _WALK_M_PER_MIN))
+        rows.append(row)
+    # 現在地（origin）指定時は近い順に並べ、最初の数件が確実に近距離候補になるようにする
+    if origin:
+        rows.sort(key=lambda r: r.get("distanceM", float("inf")))
+    return rows[:8]
 
 
 async def _run_search_hotels(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
@@ -466,7 +491,7 @@ async def _run_search_nearby(args: Dict[str, Any]) -> dict:
     if not spots:
         return {"spots": [], "note": "周辺にスポットが見つかりませんでした。radius_m を広げて再試行してください。"}
 
-    return {"spots": _compact_spots(spots)}
+    return {"spots": _compact_spots(spots, origin=(lat, lng))}
 
 
 def _to_plain(value: Any) -> Any:
