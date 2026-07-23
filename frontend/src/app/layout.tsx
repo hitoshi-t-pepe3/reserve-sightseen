@@ -83,6 +83,13 @@ export default function RootLayout({
             __html: `if ("serviceWorker" in navigator) { window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); }); }`,
           }}
         />
+        {/* バリューコマース LinkSwitch: 提携済み広告主（じゃらん等）へのリンクを自動でアフィリエイトリンクに変換 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `var vc_pid = "892664601";`,
+          }}
+        />
+        <script src="//aml.valuecommerce.com/vcdal.js" async />
       </body>
     </html>
   );
