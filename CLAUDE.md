@@ -75,9 +75,12 @@ cd frontend && npm run dev   # http://localhost:3000
 - CORS エラーが出たら Cloud Run の `reserve-backend` の `CORS_ORIGINS` 環境変数を確認する。
 
 ## 環境変数・シークレット
-- ローカル: `backend/.env`（git 管理外）。キー名: `RAKUTEN_APPLICATION_ID`,
+- ローカル（Backend）: `backend/.env`（git 管理外）。キー名: `RAKUTEN_APPLICATION_ID`,
   `RAKUTEN_AFFILIATE_ID`, `RAKUTEN_ACCESS_KEY`, `GOOGLE_PLACES_API_KEY`,
   `GCP_PROJECT_ID`, `GCP_LOCATION`, `CORS_ORIGINS`
+- ローカル（Frontend）: `frontend/.env.local`（git 管理外）。キー名:
+  `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_GTM_ID`,
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`（散歩モードに必須）
 - 本番: Secret Manager（deploy.sh が `--update-secrets` で注入）
 - **ルール: API キーの値をチャット・コード・コミットに直接書かない／貼らない。**
   ローカルで値が必要なときは「`backend/.env` を読んで」と指示する形にする。
