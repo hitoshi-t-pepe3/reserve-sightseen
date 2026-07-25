@@ -1,0 +1,62 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "デプロイモード"
+        type: choice
+        options:
+          - full
+          - backend-only
+          - frontend-only
+        default: full
+
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGION: asia-northeast1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve deploy mode
+        id: mode
+        run: |
+          MODE="${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'full' }}"
+          case "$MODE" in
+            full) echo "flag=" >> "$GITHUB_OUTPUT" ;;
+            backend-only) echo "flag=--backend-only" >> "$GITHUB_OUTPUT" ;;
+            frontend-only) echo "flag=--frontend-only" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown mode: $MODE" >&2; exit 1 ;;
+          esac
+
+      - name: Deploy
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GTM_ID: ${{ vars.GCP_GTM_ID }}
+        run: ./deploy.sh ${{ steps.mode.outputs.flag }}
