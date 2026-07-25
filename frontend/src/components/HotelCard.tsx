@@ -100,29 +100,29 @@ export function HotelCard({
           </p>
         )}
 
-        {/* Reserve Button */}
+        {/* Reserve Button - Primary CTA */}
         {reserveUrl && (
           <a
             href={reserveUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full py-2 bg-red-600 text-white text-center rounded-lg hover:bg-red-700 transition-colors text-sm font-medium mb-2"
+            className="block w-full py-3 px-4 bg-red-600 text-white text-center rounded-lg hover:bg-red-700 active:bg-red-800 transition-colors font-semibold text-base mb-2 shadow-md hover:shadow-lg"
             onClick={(e) => {
               e.stopPropagation();
               trackAffiliateClick("rakuten", { surface: "hotel_card" });
             }}
           >
-            楽天トラベルで予約
+            🏨 楽天トラベルで予約する
           </a>
         )}
 
-        {/* Jalan Compare Link（非アフィリエイト深いリンク。将来 LinkSwitch 導入判断のためクリック数だけ計測） */}
+        {/* Jalan Compare Link - Secondary CTA */}
         {hotel.jalanSearchUrl && (
           <a
             href={hotel.jalanSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full py-2 border border-orange-400 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium mb-2"
+            className="block w-full py-2 px-3 border border-orange-300 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-xs font-medium mb-2"
             onClick={(e) => {
               e.stopPropagation();
               trackAffiliateClick("jalan", { surface: "hotel_card" });
@@ -132,10 +132,10 @@ export function HotelCard({
           </a>
         )}
 
-        {/* Vacancy Button */}
+        {/* Vacancy Button - Tertiary CTA */}
         {showVacancyButton && checkin && checkout && (
           <button
-            className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            className="w-full py-2 px-3 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors text-xs font-medium"
             onClick={(e) => {
               e.stopPropagation();
               onSelect?.(hotel);
