@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ItineraryTimeline } from "./ItineraryTimeline";
+import { WalkModeScreen } from "./WalkModeScreen";
 import {
   SavedPlan,
   MAX_SAVED_PLANS,
@@ -30,6 +31,8 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   const [openId, setOpenId] = useState<string | null>(null);
   // 削除は2タップ確認（iOS の PWA では confirm() が使えない）
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // 散歩モード
+  const [walkModePlan, setWalkModePlan] = useState<SavedPlan | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -39,6 +42,16 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // 散歩モード表示中
+  if (walkModePlan) {
+    return (
+      <WalkModeScreen
+        itinerary={walkModePlan.itinerary}
+        onClose={() => setWalkModePlan(null)}
+      />
+    );
+  }
 
   const handleDelete = (plan: SavedPlan) => {
     if (pendingDeleteId !== plan.id) {
@@ -119,6 +132,14 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                     {savedDate.toLocaleDateString("ja-JP")} 保存
                   </p>
                 </button>
+                {plan.itinerary.mode === "walk" && (
+                  <button
+                    onClick={() => setWalkModePlan(plan)}
+                    className="shrink-0 px-2.5 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100"
+                  >
+                    🚶 散歩
+                  </button>
+                )}
                 <button
                   onClick={() => setOpenId(opened ? null : plan.id)}
                   className="shrink-0 px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100"

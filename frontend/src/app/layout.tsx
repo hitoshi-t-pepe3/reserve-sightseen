@@ -50,6 +50,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
   return (
     <html lang="ja">
       <head>
@@ -64,6 +66,13 @@ export default function RootLayout({
             `}
           </Script>
         ) : null}
+        {googleMapsApiKey && (
+          <Script
+            id="google-maps-init"
+            src={`https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}`}
+            strategy="afterInteractive"
+          />
+        )}
       </head>
       <body className="antialiased">
         {GTM_ID ? (
