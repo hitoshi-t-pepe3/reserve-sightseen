@@ -771,11 +771,15 @@ async def chat_with_gemini(
     # いずれも一過性の失敗なので、会話を最初からやり直す形で最大3回試行する。
     _max_attempts = 3
     last_error: Optional[Exception] = None
+    # 複数の attempt にまたがって itinerary を保持する。
+    # 最初の attempt で create_itinerary が成功しても、次の attempt がある場合は
+    # その itinerary を継承する必要がある
+    preserved_itinerary: Optional[Dict[str, Any]] = None
     for _attempt in range(_max_attempts):
         state: Dict[str, Any] = {
             "hotels": [],
             "search_context": None,
-            "itinerary": None,
+            "itinerary": preserved_itinerary,  # 前の attempt の itinerary を引き継ぐ
             "tool_called": False,
             "user_location": user_location,
         }
@@ -839,6 +843,7 @@ async def chat_with_gemini(
                 and not state["itinerary"]
             ):
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
+                preserved_itinerary = state.get("itinerary")
                 continue
 
             # 移動手段（電車・バス・飛行機）指定なのに乗車の行程（move）が
@@ -854,6 +859,7 @@ async def chat_with_gemini(
                 )
             ):
                 last_error = Exception("移動手段指定なのに乗車の行程が入りませんでした")
+                preserved_itinerary = state.get("itinerary")
                 continue
 
             print(f"[DEBUG] chat_with_gemini: SUCCESS, returning itinerary={bool(state['itinerary'])}")
@@ -867,6 +873,7 @@ async def chat_with_gemini(
         except Exception as e:
             last_error = e
             print(f"[DEBUG] chat_with_gemini: exception in attempt {_attempt}: {str(e)}")
+            preserved_itinerary = state.get("itinerary")
             continue
 
     print(f"[DEBUG] chat_with_gemini: ALL ATTEMPTS FAILED, last_error={str(last_error)}")
