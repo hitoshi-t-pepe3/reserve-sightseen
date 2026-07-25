@@ -191,9 +191,13 @@ export function ItineraryTimeline({
             <button
               onClick={handleSave}
               disabled={saveState === "saved"}
-              className="px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                saveState === "saved"
+                  ? "bg-white/30 text-white/90 disabled:opacity-70"
+                  : "bg-white/15 hover:bg-white/25"
+              }`}
             >
-              {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
+              {saveState === "saved" ? "✓ 保存済み（📚プランで確認）" : "💾 保存"}
             </button>
           )}
         </div>
@@ -210,9 +214,9 @@ export function ItineraryTimeline({
         />
       )}
       {saveError && (
-        <p className="px-4 py-2 bg-amber-50 text-amber-800 text-xs border-b border-amber-200">
-          {saveError}
-        </p>
+        <div className="px-4 py-3 bg-red-50 text-red-800 text-sm border-b border-red-200 font-medium">
+          ⚠️ 保存エラー: {saveError}
+        </div>
       )}
 
       {view.days.map((day, di) => (
