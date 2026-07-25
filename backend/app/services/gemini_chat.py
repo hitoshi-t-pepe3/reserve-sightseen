@@ -683,6 +683,7 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
 
 async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     state["tool_called"] = True
+    print(f"[DEBUG] _execute_tool: calling {name}")
     if name == "search_hotels":
         return await _run_search_hotels(args, state)
     if name == "search_tourist_spots":
@@ -690,7 +691,9 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
     if name == "search_spots_nearby":
         return await _run_search_nearby(args)
     if name == "create_itinerary":
-        return await _run_create_itinerary(args, state)
+        result = await _run_create_itinerary(args, state)
+        print(f"[DEBUG] _execute_tool: create_itinerary returned, state['itinerary']={bool(state.get('itinerary'))}")
+        return result
     return {"error": f"未知のツール: {name}"}
 
 
@@ -785,10 +788,12 @@ async def chat_with_gemini(
             chat = model.start_chat(history=_build_history(conversation_history))
             response = await chat.send_message_async(attempt_message)
 
-            for _ in range(_MAX_TOOL_TURNS):
+            for tool_turn in range(_MAX_TOOL_TURNS):
                 calls = _extract_function_calls(response)
                 if not calls:
+                    print(f"[DEBUG] chat_with_gemini attempt {_attempt}: no more tool calls after {tool_turn} turns")
                     break
+                print(f"[DEBUG] chat_with_gemini attempt {_attempt} turn {tool_turn}: {len(calls)} tool calls")
                 response_parts = []
                 for call in calls:
                     args = _to_plain(call.args) if call.args else {}
@@ -799,6 +804,7 @@ async def chat_with_gemini(
                 response = await chat.send_message_async(response_parts)
 
             text = _clean_response_text(_extract_text(response))
+            print(f"[DEBUG] chat_with_gemini: after tool calls, state['itinerary']={bool(state['itinerary'])}, text_len={len(text)}")
             if not text:
                 # 本文が空でも日程表やホテルが取れていれば成果はあるので、
                 # エラー風の文言ではなく案内文にする
@@ -843,6 +849,7 @@ async def chat_with_gemini(
                 last_error = Exception("移動手段指定なのに乗車の行程が入りませんでした")
                 continue
 
+            print(f"[DEBUG] chat_with_gemini: SUCCESS, returning itinerary={bool(state['itinerary'])}")
             return {
                 "text": text,
                 "hotels": state["hotels"],
@@ -852,8 +859,10 @@ async def chat_with_gemini(
 
         except Exception as e:
             last_error = e
+            print(f"[DEBUG] chat_with_gemini: exception in attempt {_attempt}: {str(e)}")
             continue
 
+    print(f"[DEBUG] chat_with_gemini: ALL ATTEMPTS FAILED, last_error={str(last_error)}")
     return {
         "text": f"申し訳ありませんが、エラーが発生しました: {str(last_error)}",
         "hotels": [],
