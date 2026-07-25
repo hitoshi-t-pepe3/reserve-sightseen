@@ -1,0 +1,59 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:  # 手動トリガー用
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-northeast1
+  GTM_ID: ${{ secrets.GTM_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure gcloud
+        run: |
+          gcloud config set project $PROJECT_ID
+          gcloud config set run/region $REGION
+
+      - name: Deploy to Cloud Run
+        run: |
+          export GTM_ID=${{ env.GTM_ID }}
+          chmod +x ./deploy.sh
+          ./deploy.sh
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "✅ Deployment to Cloud Run completed successfully!"
+          echo "📚 Backend Service: reserve-backend"
+          echo "🎨 Frontend Service: reserve-frontend"
+          echo "📍 Region: $REGION"
+          echo "🏷️  GTM ID: $GTM_ID"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Check logs above for details."
+          exit 1
