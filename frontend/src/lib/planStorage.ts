@@ -21,8 +21,14 @@ export function loadPlans(): SavedPlan[] {
   }
 }
 
-function persist(plans: SavedPlan[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+function persist(plans: SavedPlan[]): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+    return true;
+  } catch (e) {
+    console.error("Failed to save plans to localStorage:", e);
+    return false;
+  }
 }
 
 export function savePlan(
@@ -41,7 +47,12 @@ export function savePlan(
     itinerary,
   };
   const next = [plan, ...plans];
-  persist(next);
+  if (!persist(next)) {
+    return {
+      ok: false,
+      reason: "プランの保存に失敗しました。ブラウザのストレージ使用量を確認してください。",
+    };
+  }
   return { ok: true, plans: next };
 }
 
@@ -52,8 +63,12 @@ export function deletePlan(id: string): SavedPlan[] {
 }
 
 export function updatePlan(id: string, itinerary: Itinerary): SavedPlan[] {
-  const next = loadPlans().map((p) => (p.id === id ? { ...p, itinerary } : p));
-  persist(next);
+  const plans = loadPlans();
+  const next = plans.map((p) => (p.id === id ? { ...p, itinerary } : p));
+  if (!persist(next)) {
+    console.error("Failed to update plan");
+    return plans;
+  }
   return next;
 }
 

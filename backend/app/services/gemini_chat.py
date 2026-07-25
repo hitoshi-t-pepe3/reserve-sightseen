@@ -797,6 +797,16 @@ async def chat_with_gemini(
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
                 continue
 
+            # 最終試行でも散歩・ドライブの日程表が生成されなかった場合、
+            # ユーザーに対して明確なエラーメッセージを返す
+            if (
+                is_last_attempt
+                and user_location
+                and nearby_mode
+                and not state["itinerary"]
+            ):
+                text = "申し訳ありません。このエリアの周辺スポット情報が取得できず、プランを作成できませんでした。別の場所を試すか、お住まいの周辺を改めてお試しください。"
+
             # 移動手段（電車・バス・飛行機）指定なのに乗車の行程（move）が
             # 入らないのも flash-lite の頻出失敗。日程表があってもやり直す
             if (
