@@ -40,6 +40,7 @@ def _system_instruction() -> str:
 - ホテル名・料金を回答に書いてよいのは、search_hotels の結果を受け取った後だけです。ツールを呼ばずに知識からホテルを提案することは禁止です。
 - 観光地を提案する前に必ず search_tourist_spots（現在地周辺なら search_spots_nearby）を呼びます。
 - 行き先・宿泊日・人数が揃ったら、文章を書き始める前にまずツールを呼び出してください。これは会話が何往復目でも同じです。
+- create_itinerary を呼ぶときは、必ず検索結果から抽出したスポット・ホテルデータを含めてください。検索結果なしに空の days を渡すことは禁止です。
 
 ## 進め方
 1. プラン作成には「行き先」「チェックイン日・チェックアウト日」「人数」が必要です。足りない情報だけを1回のメッセージで簡潔に質問してください（既に会話に出ている情報は聞き直さない）。
@@ -566,20 +567,30 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
 
     days_out = []
     days_input = args.get("days") or []
-    print(f"[DEBUG] create_itinerary: title={title}, mode={mode}, days_input count={len(days_input)}")
-    for day in days_input:
+    print(f"[DEBUG] create_itinerary: title={title}, mode={mode}, days_input count={len(days_input)}, days type={type(days_input)}")
+    if not isinstance(days_input, list):
+        print(f"[DEBUG] create_itinerary: ERROR - days_input is not a list")
+        return {"error": f"days は配列である必要があります。受け取った値: {type(days_input)}"}
+
+    for day_idx, day in enumerate(days_input):
         if not isinstance(day, dict):
-            print(f"[DEBUG] create_itinerary: skipping non-dict day")
+            print(f"[DEBUG] create_itinerary: warning - skipping non-dict day at index {day_idx}")
             continue
         items_out = []
         prev_query = None  # 直前の訪問地点（経路リンクの起点）
         day_items = day.get("items") or []
-        print(f"[DEBUG] create_itinerary: day has {len(day_items)} items")
-        for item in day_items:
+        print(f"[DEBUG] create_itinerary: day[{day_idx}] has {len(day_items)} items, items type={type(day_items)}")
+        if not isinstance(day_items, list):
+            print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items is not a list: {type(day_items)}")
+            continue
+
+        for item_idx, item in enumerate(day_items):
             if not isinstance(item, dict):
+                print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items[{item_idx}] is not a dict: {type(item)}")
                 continue
             name = str(item.get("name") or "").strip()
             if not name:
+                print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items[{item_idx}] has no name")
                 continue
             category = item.get("category") if item.get("category") in ("spot", "meal", "hotel", "move") else "spot"
             address = str(item.get("address") or "").strip()
