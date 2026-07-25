@@ -1,10 +1,21 @@
 import { Itinerary, ItineraryItem } from "./api";
 
+// ホテル予約情報（旅行プランと一緒に保存）
+export interface ReservationInfo {
+  hotelName?: string;
+  checkinDate?: string; // YYYY-MM-DD
+  checkoutDate?: string; // YYYY-MM-DD
+  reservationNumber?: string;
+  confirmationUrl?: string; // 楽天トラベルなど
+  reservedAt?: string; // 予約した日時 ISO 8601
+}
+
 // 保存プランは端末の localStorage に持つ（アカウント不要・この端末/ブラウザ内のみ）
 export interface SavedPlan {
   id: string;
   savedAt: string; // ISO 8601
   itinerary: Itinerary;
+  reservation?: ReservationInfo; // ホテル予約情報（オプション）
 }
 
 const STORAGE_KEY = "rs-saved-plans";
@@ -53,6 +64,12 @@ export function deletePlan(id: string): SavedPlan[] {
 
 export function updatePlan(id: string, itinerary: Itinerary): SavedPlan[] {
   const next = loadPlans().map((p) => (p.id === id ? { ...p, itinerary } : p));
+  persist(next);
+  return next;
+}
+
+export function updateReservation(id: string, reservation: ReservationInfo): SavedPlan[] {
+  const next = loadPlans().map((p) => (p.id === id ? { ...p, reservation } : p));
   persist(next);
   return next;
 }

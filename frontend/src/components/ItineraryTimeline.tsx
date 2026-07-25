@@ -5,7 +5,9 @@ import { Itinerary, ItineraryItem } from "@/lib/api";
 import {
   savePlan,
   updatePlan,
+  updateReservation,
   loadPlans,
+  ReservationInfo,
   withAddedItem,
   withEditedItem,
   withDeletedItem,
@@ -77,6 +79,9 @@ export function ItineraryTimeline({
   const [localItinerary, setLocalItinerary] = useState<Itinerary | null>(null);
   // 保存済みプランのID。以降の編集は再保存で同じプランを更新する
   const [savedId, setSavedId] = useState<string | null>(null);
+  // ホテル予約確認ダイアログ
+  const [showReservationDialog, setShowReservationDialog] = useState(false);
+  const [reservation, setReservation] = useState<ReservationInfo>({});
 
   const view = localItinerary ?? itinerary;
 
@@ -188,13 +193,23 @@ export function ItineraryTimeline({
             </button>
           )}
           {saveable && (
-            <button
-              onClick={handleSave}
-              disabled={saveState === "saved"}
-              className="px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
-            >
-              {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
-            </button>
+            <>
+              <button
+                onClick={handleSave}
+                disabled={saveState === "saved"}
+                className="px-2.5 py-1 bg-white/15 hover:bg-white/25 disabled:opacity-70 rounded-lg text-xs font-medium transition-colors"
+              >
+                {saveState === "saved" ? "✓ 保存済み" : "💾 保存"}
+              </button>
+              {view.mode === "travel" && saveState === "saved" && (
+                <button
+                  onClick={() => setShowReservationDialog(true)}
+                  className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-medium transition-colors"
+                >
+                  🏨 ホテル予約完了
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -208,6 +223,64 @@ export function ItineraryTimeline({
           }}
           onClose={() => setShowMapEditor(false)}
         />
+      )}
+
+      {/* ホテル予約情報確認ダイアログ */}
+      {showReservationDialog && saveable && savedId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-4 space-y-3">
+            <h3 className="font-semibold text-gray-900">🏨 ホテル予約情報</h3>
+            <div className="space-y-2 text-sm">
+              <input
+                type="text"
+                value={reservation.hotelName || ""}
+                onChange={(e) => setReservation({ ...reservation, hotelName: e.target.value })}
+                placeholder="ホテル名"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+              <input
+                type="date"
+                value={reservation.checkinDate || ""}
+                onChange={(e) => setReservation({ ...reservation, checkinDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+              <input
+                type="date"
+                value={reservation.checkoutDate || ""}
+                onChange={(e) => setReservation({ ...reservation, checkoutDate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+              <input
+                type="text"
+                value={reservation.reservationNumber || ""}
+                onChange={(e) => setReservation({ ...reservation, reservationNumber: e.target.value })}
+                placeholder="予約番号"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  updateReservation(savedId, reservation);
+                  setShowReservationDialog(false);
+                  setReservation({});
+                }}
+                className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700"
+              >
+                保存
+              </button>
+              <button
+                onClick={() => {
+                  setShowReservationDialog(false);
+                  setReservation({});
+                }}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {saveError && (
         <p className="px-4 py-2 bg-amber-50 text-amber-800 text-xs border-b border-amber-200">

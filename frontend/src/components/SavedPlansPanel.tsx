@@ -5,10 +5,12 @@ import { ItineraryTimeline } from "./ItineraryTimeline";
 import { WalkModeScreen } from "./WalkModeScreen";
 import {
   SavedPlan,
+  ReservationInfo,
   MAX_SAVED_PLANS,
   loadPlans,
   deletePlan,
   updatePlan,
+  updateReservation,
   withAddedItem,
   withEditedItem,
   withDeletedItem,
@@ -158,7 +160,12 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                 </button>
               </div>
               {opened && (
-                <div className="p-3">
+                <div className="p-3 space-y-3">
+                  {/* チェックイン情報（旅行プランのみ） */}
+                  {plan.itinerary.mode === "travel" && (
+                    <ReservationPanel plan={plan} onUpdate={(res) => setPlans(updateReservation(plan.id, res))} />
+                  )}
+                  {/* 日程表 */}
                   <ItineraryTimeline
                     itinerary={plan.itinerary}
                     onAddItem={(dayIndex, name, time, insertIndex) =>
@@ -176,6 +183,118 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// チェックイン情報入力パネル（旅行プランのみ）
+function ReservationPanel({
+  plan,
+  onUpdate,
+}: {
+  plan: SavedPlan;
+  onUpdate: (reservation: ReservationInfo) => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState<ReservationInfo>(plan.reservation || {});
+
+  const handleSave = () => {
+    onUpdate(form);
+    setIsEditing(false);
+  };
+
+  const checkin = plan.reservation?.checkinDate;
+  const checkout = plan.reservation?.checkoutDate;
+  const hotelName = plan.reservation?.hotelName;
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+      {!isEditing ? (
+        // 表示モード
+        <div>
+          <p className="text-xs font-semibold text-blue-700 mb-2">🏨 チェックイン情報</p>
+          {hotelName || checkin ? (
+            <div className="space-y-1 text-sm">
+              {hotelName && <p className="font-medium text-gray-900">{hotelName}</p>}
+              {checkin && checkout && (
+                <p className="text-gray-600">
+                  {new Date(checkin).toLocaleDateString("ja-JP")} →{" "}
+                  {new Date(checkout).toLocaleDateString("ja-JP")}
+                </p>
+              )}
+              {plan.reservation?.reservationNumber && (
+                <p className="text-xs text-gray-500">予約番号: {plan.reservation.reservationNumber}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">ホテル予約情報が未入力です</p>
+          )}
+          <button
+            onClick={() => setIsEditing(true)}
+            className="mt-2 text-xs text-blue-700 hover:text-blue-900 font-medium"
+          >
+            編集
+          </button>
+        </div>
+      ) : (
+        // 編集モード
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs font-medium text-gray-700">ホテル名</label>
+            <input
+              type="text"
+              value={form.hotelName || ""}
+              onChange={(e) => setForm({ ...form, hotelName: e.target.value })}
+              placeholder="例: 京都ホテル"
+              className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-gray-700">チェックイン</label>
+              <input
+                type="date"
+                value={form.checkinDate || ""}
+                onChange={(e) => setForm({ ...form, checkinDate: e.target.value })}
+                className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700">チェックアウト</label>
+              <input
+                type="date"
+                value={form.checkoutDate || ""}
+                onChange={(e) => setForm({ ...form, checkoutDate: e.target.value })}
+                className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-lg"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700">予約番号</label>
+            <input
+              type="text"
+              value={form.reservationNumber || ""}
+              onChange={(e) => setForm({ ...form, reservationNumber: e.target.value })}
+              placeholder="楽天トラベルの予約番号など"
+              className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              className="flex-1 bg-blue-600 text-white text-xs py-1.5 rounded-lg font-medium hover:bg-blue-700"
+            >
+              保存
+            </button>
+            <button
+              onClick={() => setIsEditing(false)}
+              className="flex-1 bg-gray-200 text-gray-700 text-xs py-1.5 rounded-lg font-medium hover:bg-gray-300"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
