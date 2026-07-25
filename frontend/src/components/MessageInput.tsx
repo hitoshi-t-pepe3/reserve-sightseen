@@ -82,7 +82,8 @@ export function MessageInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // IME 変換確定時に送信されないようにする（isComposing は変換中・確定時に true）
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit(e);
     }
