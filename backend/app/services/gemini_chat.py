@@ -292,7 +292,47 @@ _BR_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 def _clean_response_text(text: str) -> str:
     text = _BR_TAG.sub("\n", text)
-    return _WEEKDAY_AFTER_DATE.sub(r"\1", text)
+    text = _WEEKDAY_AFTER_DATE.sub(r"\1", text)
+
+    # Gemini がツール結果を text に含めることがあるため、JSON を削除
+    # コードブロック形式の JSON
+    text = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', text)
+
+    # itinerary JSON パターンの削除（"label" と "items" キーを含む JSON オブジェクト）
+    # マルチライン対応: { で始まり } で終わり、内部に "label" と "items" を含む
+    def has_itinerary_structure(obj_str: str) -> bool:
+        return '"label"' in obj_str and '"items"' in obj_str
+
+    # 最も単純な手法: { から } までを探して、itinerary 構造なら削除
+    i = 0
+    result = []
+    while i < len(text):
+        if text[i] == '{':
+            # { の位置を記録して、対応する } を探す
+            start = i
+            brace_count = 1
+            i += 1
+            while i < len(text) and brace_count > 0:
+                if text[i] == '{':
+                    brace_count += 1
+                elif text[i] == '}':
+                    brace_count -= 1
+                i += 1
+            # JSON オブジェクトを抽出
+            obj_str = text[start:i]
+            # itinerary 構造か判定
+            if has_itinerary_structure(obj_str):
+                # このオブジェクトをスキップ（削除）
+                continue
+            else:
+                result.append(obj_str)
+        else:
+            result.append(text[i])
+            i += 1
+
+    text = ''.join(result)
+    text = re.sub(r'\n\s*\n+', '\n', text)
+    return text.strip()
 
 
 _MD_URL = re.compile(r"\]\([^)]*\)")
