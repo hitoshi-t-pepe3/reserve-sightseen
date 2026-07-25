@@ -59,4 +59,5 @@ jobs:
         env:
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GTM_ID: ${{ vars.GCP_GTM_ID }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: ./deploy.sh ${{ steps.mode.outputs.flag }}
