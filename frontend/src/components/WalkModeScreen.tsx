@@ -128,9 +128,9 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // Google Maps の初期化
+  // Google Maps の初期化（最初の1回だけ）
   useEffect(() => {
-    if (!currentLocation || !mapContainer.current) return;
+    if (!currentLocation || !mapContainer.current || map.current) return;
 
     // Google Maps スクリプトの読み込み確認
     if (typeof google === "undefined") {
@@ -138,7 +138,7 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
       return;
     }
 
-    // マップの作成
+    // マップの作成（初回のみ）
     map.current = new google.maps.Map(mapContainer.current, {
       zoom: 16,
       center: currentLocation,
@@ -148,11 +148,12 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
     // マーカーの作成
     createMarkers();
     updateCurrentLocationMarker();
-  }, [currentLocation]);
+  }, []);
 
-  // 現在地が変わったらマップを更新
+  // 現在地が変わったらマップを更新（位置情報が変わるたびに呼ばれる）
   useEffect(() => {
     if (!map.current || !currentLocation) return;
+    map.current.setCenter(currentLocation);
     updateCurrentLocationMarker();
   }, [currentLocation]);
 
