@@ -213,7 +213,7 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
         position: currentLocation,
         map: map.current,
         title: "現在地",
-        icon: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+        icon: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
         zIndex: 1000,
       });
     } else {
@@ -226,12 +226,12 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
 
   const getMarkerIcon = (category: ItineraryItem["category"], isCurrentt: boolean) => {
     const icons: Record<ItineraryItem["category"], string> = {
-      spot: "http://maps.google.com/mapfiles/ms/icons/orange-dot.png",
-      meal: "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
-      hotel: "http://maps.google.com/mapfiles/ms/icons/purple-dot.png",
-      move: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+      spot: "https://maps.google.com/mapfiles/ms/icons/orange-dot.png",
+      meal: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+      hotel: "https://maps.google.com/mapfiles/ms/icons/purple-dot.png",
+      move: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
     };
-    return isCurrentt ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png" : icons[category];
+    return isCurrentt ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png" : icons[category];
   };
 
   const handleCheckIn = (index: number) => {
