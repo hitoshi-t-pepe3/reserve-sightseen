@@ -314,6 +314,77 @@ def _looks_non_japanese(text: str) -> bool:
     return ratio < 0.15
 
 
+def _build_rakuten_reserve_url(
+    plan_list_url: Optional[str],
+    checkin: Optional[str],
+    checkout: Optional[str],
+    adults: int = 2,
+) -> Optional[str]:
+    """楽天トラベルの予約ページURLに宿泊日・人数をプリセットする。
+
+    Frontend の buildReserveUrl と同じロジック。
+    """
+    if not plan_list_url:
+        return None
+    if not checkin or not checkout:
+        return plan_list_url
+
+    try:
+        y1, m1, d1 = map(int, checkin.split('-'))
+        y2, m2, d2 = map(int, checkout.split('-'))
+        if not all([y1, m1, d1, y2, m2, d2]):
+            return plan_list_url
+    except (ValueError, TypeError):
+        return plan_list_url
+
+    extra = (
+        f"&f_nen1={y1}&f_tuki1={m1}&f_hi1={d1}"
+        f"&f_nen2={y2}&f_tuki2={m2}&f_hi2={d2}"
+        f"&f_otona_su={adults}&f_heya_su=1"
+    )
+
+    try:
+        if "?" in plan_list_url:
+            return plan_list_url + extra
+        else:
+            return plan_list_url + "?" + extra.lstrip("&")
+    except Exception:
+        return plan_list_url
+
+
+def _embed_hotel_links(
+    text: str,
+    hotels: List[dict],
+    checkin: Optional[str],
+    checkout: Optional[str],
+    adults: int = 2,
+) -> str:
+    """応答テキスト内のホテル名を楽天アフィリエイトリンクに置き換える。"""
+    if not hotels:
+        return text
+
+    for hotel in hotels:
+        basic_info = hotel.get("hotelBasicInfo", {})
+        hotel_name = basic_info.get("hotelName")
+        plan_list_url = basic_info.get("planListUrl")
+
+        if not hotel_name or not plan_list_url:
+            continue
+
+        reserve_url = _build_rakuten_reserve_url(plan_list_url, checkin, checkout, adults)
+        if not reserve_url:
+            continue
+
+        # ホテル名を markdown link に置き換える（既にリンクになっているものは避ける）
+        # 単純な word boundary での置き換えは誤マッチを招くため、
+        # 「ホテル名」のような単語単位で置き換える
+        pattern = r'(?<!\[)' + re.escape(hotel_name) + r'(?![\w\]（-])'
+        replacement = f'[{hotel_name}]({reserve_url})'
+        text = re.sub(pattern, replacement, text)
+
+    return text
+
+
 def _compact_hotels(hotels: List[dict]) -> List[dict]:
     """LLM に渡す用の要約。トークン量と創作リスクを抑えるため必要項目のみ。"""
     compact = []
@@ -864,8 +935,16 @@ async def chat_with_gemini(
                 continue
 
             print(f"[DEBUG] chat_with_gemini: SUCCESS, returning itinerary={bool(state['itinerary'])}")
+            # ホテル名をマークダウンリンク（楽天アフィリエイト）に置き換える
+            text_with_links = _embed_hotel_links(
+                text,
+                state["hotels"],
+                state["search_context"].get("checkin") if state["search_context"] else None,
+                state["search_context"].get("checkout") if state["search_context"] else None,
+                state["search_context"].get("adults", 2) if state["search_context"] else 2,
+            )
             return {
-                "text": text,
+                "text": text_with_links,
                 "hotels": state["hotels"],
                 "search_context": state["search_context"],
                 "itinerary": state["itinerary"],
