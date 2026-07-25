@@ -570,6 +570,13 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
     print(f"[DEBUG] create_itinerary: title={title}, mode={mode}, days_input count={len(days_input)}, days type={type(days_input)}")
     if not isinstance(days_input, list):
         print(f"[DEBUG] create_itinerary: ERROR - days_input is not a list")
+        state["itinerary"] = {
+            "title": title,
+            "mode": mode,
+            "transport": transport,
+            "booking": None,
+            "days": [],
+        }
         return {"error": f"days は配列である必要があります。受け取った値: {type(days_input)}"}
 
     for day_idx, day in enumerate(days_input):
