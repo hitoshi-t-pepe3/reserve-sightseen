@@ -24,6 +24,8 @@ BACKEND_SERVICE="reserve-backend"
 FRONTEND_SERVICE="reserve-frontend"
 # Google Tag Manager コンテナID（任意。未設定ならフロントは計測タグを埋め込まない）
 GTM_ID="${GTM_ID:-}"
+# Google Maps API キー（任意。未設定なら散歩モードのマップが表示されない）
+GOOGLE_MAPS_API_KEY="${GOOGLE_MAPS_API_KEY:-}"
 
 # 色付き出力
 RED='\033[0;31m'
@@ -123,6 +125,7 @@ build_and_deploy_frontend() {
   docker buildx build --platform linux/amd64 \
     --build-arg NEXT_PUBLIC_API_BASE="$backend_url" \
     --build-arg NEXT_PUBLIC_GTM_ID="$GTM_ID" \
+    --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$GOOGLE_MAPS_API_KEY" \
     -t "$frontend_image" ./frontend --load
   docker push "$frontend_image"
 
@@ -137,7 +140,7 @@ build_and_deploy_frontend() {
     --cpu=1 \
     --min-instances=0 \
     --max-instances=10 \
-    --set-env-vars="NEXT_PUBLIC_API_BASE=$backend_url,NEXT_PUBLIC_GTM_ID=$GTM_ID" \
+    --set-env-vars="NEXT_PUBLIC_API_BASE=$backend_url,NEXT_PUBLIC_GTM_ID=$GTM_ID,NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY" \
     --project="$PROJECT_ID"
 
   FRONTEND_URL=$(service_url "$FRONTEND_SERVICE")
