@@ -3,6 +3,58 @@
 import { useEffect, useState, useRef } from "react";
 import { Itinerary, ItineraryItem } from "@/lib/api";
 
+declare global {
+  namespace google {
+    namespace maps {
+      class Map {
+        constructor(element: HTMLElement, options?: MapOptions);
+        setCenter(latlng: LatLng | LatLngLiteral): void;
+      }
+      class Marker {
+        constructor(options?: MarkerOptions);
+        setMap(map: Map | null): void;
+        setPosition(latlng: LatLng | LatLngLiteral): void;
+        addListener(eventName: string, callback: Function): void;
+      }
+      class InfoWindow {
+        constructor(options?: InfoWindowOptions);
+        open(map?: Map | null, anchor?: Marker): void;
+        close(): void;
+      }
+      interface MapOptions {
+        zoom?: number;
+        center?: LatLng | LatLngLiteral;
+        mapTypeId?: string;
+      }
+      interface MarkerOptions {
+        position?: LatLng | LatLngLiteral;
+        map?: Map | null;
+        title?: string;
+        icon?: string;
+        label?: MarkerLabel;
+        zIndex?: number;
+      }
+      interface MarkerLabel {
+        text: string;
+        color?: string;
+        fontSize?: string;
+        fontWeight?: string;
+      }
+      interface InfoWindowOptions {
+        content?: string;
+      }
+      interface LatLng {
+        lat(): number;
+        lng(): number;
+      }
+      interface LatLngLiteral {
+        lat: number;
+        lng: number;
+      }
+    }
+  }
+}
+
 interface WalkModeScreenProps {
   itinerary: Itinerary;
   onClose: () => void;
