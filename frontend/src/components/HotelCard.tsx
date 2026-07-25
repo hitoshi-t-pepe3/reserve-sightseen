@@ -125,7 +125,7 @@ export function HotelCard({
             className="block w-full py-2 border border-orange-400 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium mb-2"
             onClick={(e) => {
               e.stopPropagation();
-              trackEvent("jalan_deep_link_click");
+              trackAffiliateClick("jalan", { surface: "hotel_card" });
             }}
           >
             じゃらんでも見る（価格比較）
