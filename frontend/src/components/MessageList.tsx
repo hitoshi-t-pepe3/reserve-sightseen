@@ -34,7 +34,16 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
         <div key={message.id} className="w-full">
           <MessageBubble message={message} />
           {/* 日程表（create_itinerary の結果）をタイムライン表示。保存ボタンつき */}
-          {message.itinerary && <ItineraryTimeline itinerary={message.itinerary} saveable />}
+          {message.itinerary && (
+            <>
+              {(!Array.isArray(message.itinerary.days) || message.itinerary.days.length === 0) && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 mb-2">
+                  ⚠️ エラー: 日程表が空です。days={JSON.stringify(message.itinerary.days || null)}
+                </div>
+              )}
+              <ItineraryTimeline itinerary={message.itinerary} saveable />
+            </>
+          )}
           {/* チャット中に検索されたホテルをカードで表示（予約導線つき） */}
           {message.hotels && message.hotels.length > 0 && (
             <div className="flex gap-3 overflow-x-auto pb-2 mb-4 -mx-4 px-4">

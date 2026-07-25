@@ -565,12 +565,17 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
     from_current = mode in ("walk", "drive")
 
     days_out = []
-    for day in args.get("days") or []:
+    days_input = args.get("days") or []
+    print(f"[DEBUG] create_itinerary: title={title}, mode={mode}, days_input count={len(days_input)}")
+    for day in days_input:
         if not isinstance(day, dict):
+            print(f"[DEBUG] create_itinerary: skipping non-dict day")
             continue
         items_out = []
         prev_query = None  # 直前の訪問地点（経路リンクの起点）
-        for item in day.get("items") or []:
+        day_items = day.get("items") or []
+        print(f"[DEBUG] create_itinerary: day has {len(day_items)} items")
+        for item in day_items:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("name") or "").strip()
@@ -628,9 +633,23 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
         if items_out:
             label = _clean_response_text(str(day.get("label") or "")).strip()
             days_out.append({"label": label, "items": items_out})
+            print(f"[DEBUG] create_itinerary: added day with {len(items_out)} items")
+        else:
+            print(f"[DEBUG] create_itinerary: day skipped (no items)")
 
+    print(f"[DEBUG] create_itinerary: days_out total count={len(days_out)}")
     if not days_out:
-        return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
+        print(f"[DEBUG] create_itinerary: WARNING - no days with items, creating fallback itinerary")
+        # If no items were provided, create a fallback itinerary with an empty placeholder
+        # This prevents silent failures and gives the user feedback
+        state["itinerary"] = {
+            "title": title,
+            "mode": mode,
+            "transport": transport,
+            "booking": None,
+            "days": [],  # Empty days - Frontend will show error message
+        }
+        return {"status": "ok", "message": "日程表を登録しましたが、スポット情報が見つかりませんでした。具体的なスポット名を入れてもう一度お試しください。"}
 
     booking = None
     link = _BOOKING_LINKS.get(transport or "") if mode == "travel" else None
@@ -644,6 +663,7 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
         "booking": booking,
         "days": days_out,
     }
+    print(f"[DEBUG] create_itinerary: SUCCESS - set state['itinerary'] with {len(days_out)} days")
     return {
         "status": "ok",
         "message": "日程表を登録しました。アプリの画面にタイムラインUIで自動表示されるため、本文は日程表のデータや構造を含めず、プランの魅力の要約とホテル案内のみ簡潔に書いてください。",
