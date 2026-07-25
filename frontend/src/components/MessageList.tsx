@@ -37,8 +37,12 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           {message.itinerary && (
             <>
               {(!Array.isArray(message.itinerary.days) || message.itinerary.days.length === 0) && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 mb-2">
-                  ⚠️ エラー: 日程表が空です。days={JSON.stringify(message.itinerary.days || null)}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-2">
+                  <p>⚠️ 日程表のデータがありません</p>
+                  <p className="mt-1 text-gray-600">コンソールを確認してください (F12 → Console)。「ItineraryTimeline: view.days is empty」と表示されています。</p>
+                  <p className="mt-1 font-mono bg-white rounded px-2 py-1 text-gray-700">
+                    {JSON.stringify(message.itinerary.days || null)}
+                  </p>
                 </div>
               )}
               <ItineraryTimeline itinerary={message.itinerary} saveable />
