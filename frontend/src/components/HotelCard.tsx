@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { HotelBasicInfo } from "@/lib/api";
 import { HotelImageCarousel } from "./HotelImageCarousel";
-import { trackAffiliateClick, trackEvent } from "@/lib/analytics";
+import { trackAffiliateClick, trackEvent, trackHotelView } from "@/lib/analytics";
 
 interface HotelCardProps {
   hotel: HotelBasicInfo;
@@ -22,6 +23,17 @@ export function HotelCard({
   checkout,
   reserveUrl,
 }: HotelCardProps) {
+  // GA4: ホテルカード表示時に view_item イベント送信
+  useEffect(() => {
+    trackHotelView({
+      item_id: String(hotel.hotelNo),
+      item_name: hotel.hotelName,
+      affiliation: "rakuten",
+      currency: "JPY",
+      value: hotel.hotelMinCharge,
+    });
+  }, [hotel.hotelNo, hotel.hotelName, hotel.hotelMinCharge]);
+
   // hotelThumbnailUrl は小さい画像で、カードいっぱいに引き伸ばすと粗く見えるため
   // 実寸の写真（外観・部屋）だけをスライド対象にし、重複URLは除く
   const images = Array.from(
@@ -109,7 +121,12 @@ export function HotelCard({
             className="block w-full py-3 px-4 bg-red-600 text-white text-center rounded-lg hover:bg-red-700 active:bg-red-800 transition-colors font-semibold text-base mb-2 shadow-md hover:shadow-lg"
             onClick={(e) => {
               e.stopPropagation();
-              trackAffiliateClick("rakuten", { surface: "hotel_card" });
+              trackAffiliateClick("rakuten", {
+                surface: "hotel_card",
+                hotel_name: hotel.hotelName,
+                hotel_id: String(hotel.hotelNo),
+                price: hotel.hotelMinCharge,
+              });
             }}
           >
             🏨 楽天トラベルで予約する
@@ -125,7 +142,12 @@ export function HotelCard({
             className="block w-full py-2 px-3 border border-orange-300 text-orange-600 text-center rounded-lg hover:bg-orange-50 transition-colors text-xs font-medium mb-2"
             onClick={(e) => {
               e.stopPropagation();
-              trackAffiliateClick("jalan", { surface: "hotel_card" });
+              trackAffiliateClick("jalan", {
+                surface: "hotel_card",
+                hotel_name: hotel.hotelName,
+                hotel_id: String(hotel.hotelNo),
+                price: hotel.hotelMinCharge,
+              });
             }}
           >
             じゃらんでも見る（価格比較）
