@@ -39,9 +39,12 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          export GTM_ID=${{ env.GTM_ID }}
           chmod +x ./deploy.sh
           ./deploy.sh
+        env:
+          GTM_ID: ${{ secrets.GTM_ID }}
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: asia-northeast1
 
       - name: Deployment Summary
         if: success()
