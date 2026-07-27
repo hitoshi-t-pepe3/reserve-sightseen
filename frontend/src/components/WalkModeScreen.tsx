@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Itinerary, ItineraryItem } from "@/lib/api";
+import { Itinerary, ItineraryItem, searchPlaces, PlaceSearchResult } from "@/lib/api";
 
 declare global {
   namespace google {
@@ -81,6 +81,10 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
+  const [nearbyPlaces, setNearbyPlaces] = useState<PlaceSearchResult[]>([]);
+  const [showNearbyPopup, setShowNearbyPopup] = useState(false);
+  const [searchingNearby, setSearchingNearby] = useState(false);
+  const nearbySearchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // 最初の日の行程を取得（散歩は通常1日）
   const items = itinerary.days[0]?.items || [];
@@ -155,6 +159,35 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
     if (!map.current || !currentLocation) return;
     map.current.setCenter(currentLocation);
     updateCurrentLocationMarker();
+  }, [currentLocation]);
+
+  // 周辺のグルメ・観光地を検索（30秒ごと、ただし前の検索が終わるまで待つ）
+  useEffect(() => {
+    if (!currentLocation || searchingNearby) return;
+
+    // 前のタイムアウトをクリア
+    if (nearbySearchTimeout.current) clearTimeout(nearbySearchTimeout.current);
+
+    setSearchingNearby(true);
+    searchPlaces("restaurant", currentLocation)
+      .then((results) => {
+        setNearbyPlaces(results.slice(0, 3)); // 上位3件
+        setShowNearbyPopup(true);
+      })
+      .catch(() => {
+        // エラーは無視
+      })
+      .finally(() => {
+        setSearchingNearby(false);
+        // 30秒後に次の検索をスケジュール
+        nearbySearchTimeout.current = setTimeout(() => {
+          // トリガーされない（依存配列に currentLocation があるため）
+        }, 30000);
+      });
+
+    return () => {
+      if (nearbySearchTimeout.current) clearTimeout(nearbySearchTimeout.current);
+    };
   }, [currentLocation]);
 
   const createMarkers = () => {
@@ -320,6 +353,52 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
           ))}
         </div>
       </div>
+
+      {/* 周辺グルメ・観光地ポップアップ */}
+      {showNearbyPopup && nearbyPlaces.length > 0 && (
+        <div className="fixed inset-0 bg-black/40 z-40 flex items-end">
+          <div className="w-full bg-white rounded-t-2xl shadow-2xl max-h-[50vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-2xl">
+              <h3 className="font-semibold text-gray-900">🍽️ 周辺のグルメ・観光</h3>
+              <button
+                onClick={() => setShowNearbyPopup(false)}
+                className="text-gray-500 hover:text-gray-700 text-lg"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {nearbyPlaces.map((place) => (
+                <div key={place.place_id} className="px-4 py-3 hover:bg-gray-50">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900 text-sm">{place.name}</p>
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-1">{place.address}</p>
+                    </div>
+                    {place.rating && (
+                      <div className="flex items-center gap-1 ml-2">
+                        <span className="text-yellow-500">★</span>
+                        <span className="text-xs font-medium text-gray-700">{place.rating.toFixed(1)}</span>
+                        {place.user_ratings_total && (
+                          <span className="text-xs text-gray-500">({place.user_ratings_total})</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&center=${place.location.lat},${place.location.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs text-blue-600 hover:text-blue-800 font-medium mt-2"
+                  >
+                    Google Maps で見る →
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
