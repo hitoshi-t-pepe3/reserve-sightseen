@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ItineraryTimeline } from "./ItineraryTimeline";
 import { WalkModeScreen } from "./WalkModeScreen";
+import { BudgetAllocationPanel } from "./BudgetAllocationPanel";
 import {
   SavedPlan,
   ReservationInfo,
@@ -35,6 +36,8 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 散歩モード
   const [walkModePlan, setWalkModePlan] = useState<SavedPlan | null>(null);
+  // 予算管理パネル
+  const [budgetPlanId, setBudgetPlanId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -148,6 +151,14 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                 >
                   {opened ? "閉じる" : "開く"}
                 </button>
+                {plan.itinerary.mode === "travel" && (
+                  <button
+                    onClick={() => setBudgetPlanId(budgetPlanId === plan.id ? null : plan.id)}
+                    className="shrink-0 px-2.5 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-100"
+                  >
+                    💰 予算
+                  </button>
+                )}
                 <button
                   onClick={() => handleDelete(plan)}
                   className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
@@ -164,6 +175,16 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                   {/* チェックイン情報（旅行プランのみ） */}
                   {plan.itinerary.mode === "travel" && (
                     <ReservationPanel plan={plan} onUpdate={(res) => setPlans(updateReservation(plan.id, res))} />
+                  )}
+                  {/* 予算管理（旅行プランのみ） */}
+                  {plan.itinerary.mode === "travel" && budgetPlanId === plan.id && (
+                    <div className="max-h-96 overflow-y-auto">
+                      <BudgetAllocationPanel
+                        planId={plan.id}
+                        isOpen={true}
+                        onClose={() => setBudgetPlanId(null)}
+                      />
+                    </div>
                   )}
                   {/* 日程表 */}
                   <ItineraryTimeline

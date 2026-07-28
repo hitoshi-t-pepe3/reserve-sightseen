@@ -15,6 +15,7 @@ import {
 import { NipponTravelAd } from "./NipponTravelAd";
 import { NearbyChat } from "./NearbyChat";
 import { ItineraryMapEditor } from "./ItineraryMapEditor";
+import { ItineraryMapView } from "./ItineraryMapView";
 import { trackAffiliateClick } from "@/lib/analytics";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
@@ -65,6 +66,7 @@ export function ItineraryTimeline({
 }: ItineraryTimelineProps) {
   const [visited, setVisited] = useState<Record<string, boolean>>({});
   const [showMapEditor, setShowMapEditor] = useState(false);
+  const [showMapView, setShowMapView] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   // 追加フォームの位置。index は挿入位置（null なら日の末尾）
@@ -192,6 +194,12 @@ export function ItineraryTimeline({
               🗺️ 地図で編集
             </button>
           )}
+          <button
+            onClick={() => setShowMapView(!showMapView)}
+            className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-medium transition-colors"
+          >
+            {showMapView ? "📋 リスト表示" : "🗺️ 地図表示"}
+          </button>
           {saveable && (
             <>
               <button
@@ -288,7 +296,13 @@ export function ItineraryTimeline({
         </p>
       )}
 
-      {view.days.map((day, di) => (
+      {showMapView ? (
+        <div className="p-4">
+          <ItineraryMapView itinerary={view} />
+        </div>
+      ) : (
+        <>
+          {view.days.map((day, di) => (
         <div key={di} className="px-4 py-3">
           {/* 1日だけの散歩・ドライブコースはヘッダーと重複するのでラベルを出さない */}
           {day.label && !(view.days.length === 1 && view.mode !== "travel") && (
@@ -522,6 +536,8 @@ export function ItineraryTimeline({
             ))}
         </div>
       ))}
+        </>
+      )}
 
       {/* 電車プランは日本旅行の新幹線＋宿セット広告（A8）を予約導線にする */}
       {view.mode === "travel" && view.transport === "train" && <NipponTravelAd />}

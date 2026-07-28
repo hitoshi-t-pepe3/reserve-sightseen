@@ -8,6 +8,7 @@ import { HotelSearchPanel } from "./HotelSearchPanel";
 import { SavedPlansPanel } from "./SavedPlansPanel";
 import { FavoritesPanel } from "./FavoritesPanel";
 import { SearchHistoryPanel } from "./SearchHistoryPanel";
+import { FavoriteSpotsPanel } from "./FavoriteSpotsPanel";
 import { NearbyChat, ChatChannel } from "./NearbyChat";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 import { sendChatMessage, HotelBasicInfo, SearchContext, Transport } from "@/lib/api";
@@ -57,6 +58,7 @@ export function ChatWindow() {
   const [showSavedPlans, setShowSavedPlans] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showFavoriteSpots, setShowFavoriteSpots] = useState(false);
   // 直近のチャット検索条件。手動ホテル検索パネルの初期値・予約URLに引き継ぐ。
   const [searchContext, setSearchContext] = useState<SearchContext>({});
   // 位置情報の許可を一度得たら、以降のメッセージにも現在地を添える（散歩・ドライブモードの続きの会話用）
@@ -306,6 +308,12 @@ export function ChatWindow() {
             🔍 検索履歴
           </button>
           <button
+            onClick={() => setShowFavoriteSpots(true)}
+            className="px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors"
+          >
+            📌 スポット
+          </button>
+          <button
             onClick={() => setShowSavedPlans(true)}
             className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
           >
@@ -453,6 +461,18 @@ export function ChatWindow() {
               isOpen={showSearchHistory}
               onClose={() => setShowSearchHistory(false)}
               onSelect={handleSelectFromSearchHistory}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Favorite Spots Panel */}
+      {showFavoriteSpots && (
+        <div className="absolute inset-0 z-40 pointer-events-none">
+          <div className="absolute bottom-0 left-0 right-0 pointer-events-auto max-h-[80vh]">
+            <FavoriteSpotsPanel
+              isOpen={showFavoriteSpots}
+              onClose={() => setShowFavoriteSpots(false)}
             />
           </div>
         </div>
