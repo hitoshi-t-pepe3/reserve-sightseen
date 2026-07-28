@@ -207,19 +207,25 @@ export function buildReserveUrl(
   const [y2, m2, d2] = checkout.split('-').map(Number);
   if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return planListUrl;
 
-  const extra =
-    `&f_nen1=${y1}&f_tuki1=${m1}&f_hi1=${d1}` +
-    `&f_nen2=${y2}&f_tuki2=${m2}&f_hi2=${d2}` +
-    `&f_otona_su=${adults}&f_heya_su=${rooms}`;
-
   try {
     const url = new URL(planListUrl);
     const pc = url.searchParams.get('pc');
     if (pc) {
-      url.searchParams.set('pc', pc + extra);
+      // pc は URL エンコード済みの文字列。デコードしてパラメータを追加し、再度エンコード
+      const decodedPc = decodeURIComponent(pc);
+      const params = new URLSearchParams(decodedPc);
+      params.set('f_nen1', String(y1));
+      params.set('f_tuki1', String(m1));
+      params.set('f_hi1', String(d1));
+      params.set('f_nen2', String(y2));
+      params.set('f_tuki2', String(m2));
+      params.set('f_hi2', String(d2));
+      params.set('f_otona_su', String(adults));
+      params.set('f_heya_su', String(rooms));
+      url.searchParams.set('pc', params.toString());
       return url.toString();
     }
-    return planListUrl + (planListUrl.includes('?') ? extra : `?${extra.slice(1)}`);
+    return planListUrl;
   } catch {
     return planListUrl;
   }
