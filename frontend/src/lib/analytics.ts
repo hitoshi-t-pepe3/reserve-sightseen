@@ -16,9 +16,25 @@ export function trackEvent(event: string, params?: EventParams) {
 
 export type AffiliateSource = "rakuten" | "jalan" | "nippon_travel";
 
+export interface HotelItemData {
+  item_id: string;
+  item_name: string;
+  affiliation: string;
+  currency: string;
+  value?: number;
+}
+
+export function trackHotelView(data: HotelItemData) {
+  trackEvent("view_item", data as unknown as EventParams);
+}
+
 export function trackAffiliateClick(
   affiliate: AffiliateSource,
   params?: EventParams
 ) {
   trackEvent("affiliate_click", { affiliate, ...params });
+}
+
+export function trackBookingClick(params?: EventParams) {
+  trackEvent("booking_click", params);
 }
