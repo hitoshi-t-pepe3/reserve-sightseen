@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { HotelBasicInfo } from "@/lib/api";
 import { HotelImageCarousel } from "./HotelImageCarousel";
-import { trackAffiliateClick, trackEvent } from "@/lib/analytics";
+import { trackAffiliateClick, trackEvent, trackHotelView } from "@/lib/analytics";
+import { isFavorited, toggleFavorite } from "@/lib/favoriteHotels";
 
 interface HotelCardProps {
   hotel: HotelBasicInfo;
@@ -12,6 +14,7 @@ interface HotelCardProps {
   checkout?: string;
   // 指定すると「楽天トラベルで予約」ボタンを表示（日付・人数プリセット済みURL）
   reserveUrl?: string;
+  onFavoriteChange?: () => void;
 }
 
 export function HotelCard({
@@ -21,7 +24,24 @@ export function HotelCard({
   checkin,
   checkout,
   reserveUrl,
+  onFavoriteChange,
 }: HotelCardProps) {
+  const [isFav, setIsFav] = useState(false);
+
+  useEffect(() => {
+    setIsFav(isFavorited(hotel.hotelNo));
+  }, [hotel.hotelNo]);
+
+  // GA4: ホテルカード表示時に view_item イベント送信
+  useEffect(() => {
+    trackHotelView({
+      item_id: String(hotel.hotelNo),
+      item_name: hotel.hotelName,
+      affiliation: "rakuten",
+      currency: "JPY",
+      value: hotel.hotelMinCharge,
+    });
+  }, [hotel.hotelNo, hotel.hotelName, hotel.hotelMinCharge]);
   // hotelThumbnailUrl は小さい画像で、カードいっぱいに引き伸ばすと粗く見えるため
   // 実寸の写真（外観・部屋）だけをスライド対象にし、重複URLは除く
   const images = Array.from(
@@ -29,6 +49,18 @@ export function HotelCard({
   );
   const rating = hotel.reviewAverage ? hotel.reviewAverage.toFixed(1) : '－';
   const reviewCount = hotel.reviewCount ? `(${hotel.reviewCount}件)` : '';
+
+  const handleFavoriteToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite(hotel);
+    setIsFav(!isFav);
+    onFavoriteChange?.();
+    trackEvent("favorite_hotel_toggle", {
+      hotel_id: String(hotel.hotelNo),
+      hotel_name: hotel.hotelName,
+      action: !isFav ? "add" : "remove",
+    });
+  };
 
   // hotelMinChargeRestrictedOnly: 年齢/記念日限定等の特典プランしか空室がなく、
   // 一般ユーザー向けの実勢価格として提示できない場合。
@@ -50,6 +82,15 @@ export function HotelCard({
       {/* Image */}
       <div className="relative h-48 bg-gray-100">
         <HotelImageCarousel images={images} alt={hotel.hotelName} />
+        <button
+          onClick={handleFavoriteToggle}
+          className="absolute top-2 right-2 p-2 bg-white rounded-full shadow-md hover:shadow-lg transition-shadow"
+          aria-label={isFav ? "お気に入りから削除" : "お気に入りに追加"}
+        >
+          <span className={`text-2xl transition-transform ${isFav ? "scale-125" : ""}`}>
+            {isFav ? "❤️" : "🤍"}
+          </span>
+        </button>
       </div>
 
       {/* Content */}
