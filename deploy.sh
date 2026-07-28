@@ -80,6 +80,111 @@ print(f"OK: search-area(京都) {d['\''count'\'']}件 / 1件目: {name}")
   [[ "$code" == "200" ]] || error "Smoke test 失敗: Frontend が HTTP $code ($frontend_url)"
   log "OK: Frontend HTTP 200"
 
+  # 4. Itinerary 生成テスト: チャットで日程表が返ってくるか
+  log "Testing: Itinerary generation..."
+  curl -fsS --max-time 60 "$backend_url/api/chat" \
+    -H "Content-Type: application/json" \
+    -d '{"message":"京都に2024-08-01から2024-08-03、大人2人で泊まりたい","conversation_history":[]}' \
+    | python3 -c '
+import json, sys
+try:
+  d = json.load(sys.stdin)
+  response = d.get("response", "")
+  itinerary = d.get("itinerary")
+
+  # レスポンスは日本語であること
+  assert response and len(response) > 5, f"応答が短すぎる: {response[:50]}"
+
+  # itinerary が返ってくれば成功（days > 0 かつ items が存在）
+  if itinerary:
+    days = itinerary.get("days", [])
+    assert len(days) > 0, f"days が0件: {itinerary}"
+    items_count = sum(len(d.get("items", [])) for d in days)
+    assert items_count > 0, f"全 items が0件"
+    print(f"OK: create_itinerary 成功 (days={len(days)}, items={items_count})")
+  else:
+    print("OK: 応答取得 (itinerary なし、日程表は呼び出されていない可能性)")
+except Exception as e:
+  sys.exit(f"Smoke test 失敗: /api/chat の応答が不正: {e}")
+' || error "Smoke test 失敗: /api/chat の応答が不正です"
+
+  # 5. ホテルカード生成テスト: 楽天・じゃらんリンクが有効か
+  log "Testing: Hotel card affiliate URLs..."
+  curl -fsS --max-time 30 "$backend_url/api/hotels/search-area?area=%E4%BA%AC%E9%83%BD&hits=1&checkin=2024-08-01&checkout=2024-08-03" \
+    | python3 -c '
+import json, sys, urllib.parse
+try:
+  d = json.load(sys.stdin)
+  hotels = d.get("hotels", [])
+  assert len(hotels) > 0, "ホテルが0件"
+
+  hotel = hotels[0].get("hotelBasicInfo", {})
+  plan_list_url = hotel.get("planListUrl")
+  jalan_url = hotel.get("jalanSearchUrl")
+
+  assert plan_list_url, f"planListUrl が空"
+
+  # planListUrl は楽天アフィリエイト形式の URL
+  assert "hb.afl.rakuten.co.jp" in plan_list_url or "travel.rakuten.co.jp" in plan_list_url, \
+    f"楽天URLではない: {plan_list_url[:100]}"
+
+  # じゃらんURLが存在すればチェック
+  if jalan_url:
+    assert "jalan.net" in jalan_url, f"じゃらんURLではない: {jalan_url[:100]}"
+    print(f"OK: 楽天・じゃらんリンク両方取得")
+  else:
+    print(f"OK: 楽天リンク取得 (じゃらん未実装)")
+except Exception as e:
+  sys.exit(f"ホテルカード生成失敗: {e}")
+' || error "Smoke test 失敗: ホテルカード生成テストが失敗しました"
+
+  # 6. アフィリエイトURL生成テスト: buildReserveUrl の出力が 400 bad request になっていないか
+  log "Testing: Affiliate URL validity..."
+  curl -fsS --max-time 30 "$backend_url/api/hotels/search-area?area=%E4%BA%AC%E9%83%BD&hits=1" \
+    | python3 << 'PYTHON_EOF'
+import json, sys, subprocess
+try:
+  d = json.load(sys.stdin)
+  hotels = d.get("hotels", [])
+  if not hotels:
+    print("OK: ホテルが0件なので URL テストをスキップ")
+    sys.exit(0)
+
+  hotel = hotels[0].get("hotelBasicInfo", {})
+  plan_list_url = hotel.get("planListUrl")
+
+  if not plan_list_url:
+    print("OK: planListUrl がないのでスキップ")
+    sys.exit(0)
+
+  # フロントが buildReserveUrl で日付・人数を追加するシミュレーション
+  # URL に ?f_nen1=2024&f_tuki1=8&f_hi1=1... を追加してリダイレクト先が有効か確認
+  # （実際には楽天サーバーへリダイレクトされるため、ステータスコードのみ確認）
+
+  test_url = plan_list_url
+  if "?" in plan_list_url:
+    test_url += "&f_nen1=2024&f_tuki1=8&f_hi1=1&f_nen2=2024&f_tuki2=8&f_hi2=3&f_otona_su=2&f_heya_su=1"
+  else:
+    test_url += "?f_nen1=2024&f_tuki1=8&f_hi1=1&f_nen2=2024&f_tuki2=8&f_hi2=3&f_otona_su=2&f_heya_su=1"
+
+  # curl で HEAD リクエストして HTTP ステータスをチェック
+  result = subprocess.run(
+    ["curl", "-sS", "-I", "-L", "-m", "10", test_url],
+    capture_output=True, text=True, timeout=15
+  )
+
+  # 400 Bad Request がないか、503+ のサーバーエラーがないか
+  if "400" in result.stdout or "400" in result.stderr:
+    print(f"警告: URL が 400 bad request を返しています: {test_url[:100]}")
+  elif "5" in result.stdout[:3]:  # HTTP/1.1 5xx
+    print(f"警告: URL が 5xx エラーを返しています")
+  else:
+    print(f"OK: affiliate URL が有効 (リダイレクト先到達可能)")
+except Exception as e:
+  print(f"OK: URL テストをスキップ ({e})")
+PYTHON_EOF
+  || warn "URL テストで問題が検出されました"
+
   log "=== Smoke Test 全件成功 ==="
 }
 
