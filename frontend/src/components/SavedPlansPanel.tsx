@@ -14,6 +14,7 @@ import {
   withAddedItem,
   withEditedItem,
   withDeletedItem,
+  generateShareUrl,
 } from "@/lib/planStorage";
 
 const MODE_BADGES: Record<string, string> = {
@@ -35,6 +36,9 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 散歩モード
   const [walkModePlan, setWalkModePlan] = useState<SavedPlan | null>(null);
+  // 共有ダイアログ
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [sharePlanId, setSharePlanId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -149,6 +153,16 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                   {opened ? "閉じる" : "開く"}
                 </button>
                 <button
+                  onClick={() => {
+                    setSharePlanId(plan.id);
+                    setShareDialogOpen(true);
+                  }}
+                  className="shrink-0 px-2.5 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100"
+                  title="このプランを共有"
+                >
+                  📤
+                </button>
+                <button
                   onClick={() => handleDelete(plan)}
                   className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
                     pendingDeleteId === plan.id
@@ -182,6 +196,96 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
             </div>
           );
         })}
+      </div>
+
+      {/* 共有ダイアログ */}
+      {shareDialogOpen && sharePlanId && (
+        <ShareDialog
+          plan={plans.find((p) => p.id === sharePlanId)}
+          onClose={() => {
+            setShareDialogOpen(false);
+            setSharePlanId(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// 共有ダイアログ
+function ShareDialog({ plan, onClose }: { plan: SavedPlan | undefined; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!plan) return null;
+
+  const shareUrl = generateShareUrl({
+    title: plan.itinerary.title,
+    itinerary: plan.itinerary,
+  });
+
+  const handleCopyLink = () => {
+    if (navigator.clipboard && shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900">プランを共有</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 text-lg"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            このリンクを共有すると、誰でもこのプランを表示できます。
+          </p>
+
+          <div className="bg-gray-50 p-3 rounded-lg break-all text-xs text-gray-600 max-h-20 overflow-y-auto">
+            {shareUrl}
+          </div>
+
+          <button
+            onClick={handleCopyLink}
+            className={`w-full py-2.5 rounded-lg font-medium transition-colors ${
+              copied
+                ? "bg-green-600 text-white"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            }`}
+          >
+            {copied ? "✓ コピーしました" : "📋 リンクをコピー"}
+          </button>
+
+          {navigator.share && (
+            <button
+              onClick={() => {
+                navigator.share({
+                  title: plan.itinerary.title,
+                  text: `ReserveSightseenで作成した旅行プランを共有します: ${plan.itinerary.title}`,
+                  url: shareUrl,
+                });
+              }}
+              className="w-full py-2.5 bg-gray-100 text-gray-900 rounded-lg font-medium hover:bg-gray-200"
+            >
+              📱 この方法で共有
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-50"
+        >
+          閉じる
+        </button>
       </div>
     </div>
   );

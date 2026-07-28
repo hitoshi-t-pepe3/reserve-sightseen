@@ -10,6 +10,12 @@ export interface ReservationInfo {
   reservedAt?: string; // 予約した日時 ISO 8601
 }
 
+// 共有用プランデータ（旅行プラン + タイトル）
+export interface ShareablePlan {
+  title: string;
+  itinerary: Itinerary;
+}
+
 // 保存プランは端末の localStorage に持つ（アカウント不要・この端末/ブラウザ内のみ）
 export interface SavedPlan {
   id: string;
@@ -344,4 +350,48 @@ export function withDeletedItem(
   // 日の行程が空になったら日ごと削除（バックエンドは空の日を許さないため表示も揃える）
   next.days = next.days.filter((d) => d.items.length > 0);
   return next;
+}
+
+// ---- プラン共有機能 ----
+// プランをエンコードして共有リンク用クエリパラメータを生成
+export function encodeShareablePlan(plan: ShareablePlan): string {
+  try {
+    const json = JSON.stringify(plan);
+    // Base64 エンコード（URL セーフバージョン）
+    const encoded = btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=/g, "");
+    return encoded;
+  } catch {
+    return "";
+  }
+}
+
+// 共有リンクから プランをデコード
+export function decodeShareablePlan(encoded: string): ShareablePlan | null {
+  try {
+    // パディング復元
+    const padded = encoded
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(encoded.length + (4 - (encoded.length % 4)) % 4, "=");
+    const json = decodeURIComponent(escape(atob(padded)));
+    const plan = JSON.parse(json) as ShareablePlan;
+    // 簡易バリデーション
+    if (plan.title && plan.itinerary?.title && plan.itinerary?.days) {
+      return plan;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 共有リンクを生成（同期）
+export function generateShareUrl(plan: ShareablePlan): string {
+  const encoded = encodeShareablePlan(plan);
+  if (!encoded) return "";
+  const siteUrl = typeof window !== "undefined" ? window.location.origin : "";
+  return `${siteUrl}/?shared=${encoded}`;
 }
