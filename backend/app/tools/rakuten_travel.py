@@ -182,6 +182,39 @@ class RakutenTravelTool:
                 "largeClassCode等の区分コード, hotelNo, latitude+longitude"
             )
 
+    # 楽天トラベルAPIは秒あたりの呼び出し数が厳しく、連続で叩くと
+    # 429 "Rate limit is exceeded. Try again in 1 seconds." を返す。
+    # リトライしないと 429 がそのまま 500 になってユーザーに見える
+    # （検索が「たまたま失敗する」形で表面化する）。
+    _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+    _MAX_ATTEMPTS = 3
+
+    async def _get_with_retry(self, url: str, query: dict, api_label: str) -> dict:
+        """楽天APIへの GET。429・一時的な5xxは待って再試行する。"""
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self._MAX_ATTEMPTS):
+            try:
+                response = await self.client.get(url, params=query, headers=self._headers())
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                last_error = Exception(f"{api_label} error: {status} - {e.response.text}")
+                if status not in self._RETRY_STATUSES or attempt == self._MAX_ATTEMPTS - 1:
+                    raise last_error
+                # 429 は「1秒待て」と返してくるので、1.5秒から線形に伸ばす
+                await asyncio.sleep(1.5 * (attempt + 1))
+            except httpx.HTTPError as e:
+                last_error = Exception(f"{api_label} request failed: {e}")
+                if attempt == self._MAX_ATTEMPTS - 1:
+                    raise last_error
+                await asyncio.sleep(1.5 * (attempt + 1))
+            except Exception as e:
+                raise Exception(f"{api_label} request failed: {e}")
+
+        raise last_error or Exception(f"{api_label} request failed")
+
     async def search_hotels(self, params: RakutenHotelSearchParams) -> dict:
         """施設検索API (新プラットフォーム)"""
         self._validate_search_params(params)
@@ -216,15 +249,7 @@ class RakutenTravelTool:
             if value is not None:
                 query[api_key] = value
 
-        try:
-            response = await self.client.get(url, params=query, headers=self._headers())
-            response.raise_for_status()
-            data = response.json()
-            return data
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"Rakuten API error: {e.response.status_code} - {e.response.text}")
-        except Exception as e:
-            raise Exception(f"Rakuten API request failed: {str(e)}")
+        return await self._get_with_retry(url, query, "Rakuten API")
 
     async def search_vacant_hotels(self, params: RakutenVacantSearchParams) -> dict:
         """空室検索API (新プラットフォーム)"""
@@ -250,14 +275,7 @@ class RakutenTravelTool:
             if value is not None:
                 query[api_key] = value
 
-        try:
-            response = await self.client.get(url, params=query, headers=self._headers())
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"Rakuten Vacant API error: {e.response.status_code} - {e.response.text}")
-        except Exception as e:
-            raise Exception(f"Rakuten Vacant API request failed: {str(e)}")
+        return await self._get_with_retry(url, query, "Rakuten Vacant API")
 
     def _parse_hotels(self, data: dict) -> list[dict]:
         """レスポンスの hotels 配列を正規化
@@ -489,18 +507,15 @@ class RakutenTravelTool:
                 return
             realistic = None
             async with semaphore:
-                for attempt in range(3):
-                    try:
-                        realistic = await self.get_realistic_min_charge(
-                            hotel_no, checkin, checkout, adults=adults, rooms=rooms
-                        )
-                        break
-                    except Exception as e:
-                        if "429" in str(e) and attempt < 2:
-                            await asyncio.sleep(1.5 * (attempt + 1))
-                            continue
-                        realistic = None
-                        break
+                # get_realistic_min_charge → get_vacancy → search_vacant_hotels は
+                # _get_with_retry 経由で 429/5xx を既にリトライする。ここで重ねて
+                # リトライすると最悪 3×3 回叩いてしまうため、1回呼ぶだけでよい。
+                try:
+                    realistic = await self.get_realistic_min_charge(
+                        hotel_no, checkin, checkout, adults=adults, rooms=rooms
+                    )
+                except Exception:
+                    realistic = None
 
             if realistic is None:
                 # 空室が取れない場合、施設検索APIの値は参考値である旨を明示
