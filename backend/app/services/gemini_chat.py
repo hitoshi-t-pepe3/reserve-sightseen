@@ -973,6 +973,17 @@ async def chat_with_gemini(
                 notes.append(
                     f"必ず search_spots_nearby を呼び、その結果から create_itinerary(mode={nearby_mode}) で日程表を登録してください"
                 )
+            elif not preserved_itinerary:
+                # 通常の宿泊プラン等。nearby_mode 分岐と違い、ここまでの
+                # attempt で何が欠けていたか（非日本語／日程表未登録）を
+                # 区別せず一律で念押しする。前 attempt で itinerary が既に
+                # 取れている場合(transport の move 追加待ちなど)は不要なので
+                # preserved_itinerary が無いときだけ付ける。
+                notes.append(
+                    "行き先・宿泊日・人数が揃っているので、"
+                    "search_hotels/search_tourist_spots の結果を使って"
+                    "必ず create_itinerary を呼び日程表を登録してください"
+                )
             if transport in ("train", "bus", "plane"):
                 notes.append(
                     f"往路・復路の{_TRANSPORT_LABELS[transport]}の乗車を category=move の項目として必ず日程表に入れてください"
