@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
@@ -338,17 +338,43 @@ def _build_rakuten_reserve_url(
     except (ValueError, TypeError):
         return plan_list_url
 
-    extra = (
-        f"&f_nen1={y1}&f_tuki1={m1}&f_hi1={d1}"
-        f"&f_nen2={y2}&f_tuki2={m2}&f_hi2={d2}"
-        f"&f_otona_su={adults}&f_heya_su=1"
-    )
+    presets = {
+        "f_nen1": str(y1), "f_tuki1": str(m1), "f_hi1": str(d1),
+        "f_nen2": str(y2), "f_tuki2": str(m2), "f_hi2": str(d2),
+        "f_otona_su": str(adults), "f_heya_su": "1",
+    }
+
+    def with_dates(raw_url: str) -> Optional[str]:
+        """完全なURL文字列に f_* を追加する。URL でなければ None。"""
+        parts = urlsplit(raw_url)
+        if not parts.scheme or not parts.netloc:
+            return None
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query.update(presets)
+        return urlunsplit(parts._replace(query=urlencode(query)))
 
     try:
-        if "?" in plan_list_url:
-            return plan_list_url + extra
-        else:
-            return plan_list_url + "?" + extra.lstrip("&")
+        parts = urlsplit(plan_list_url)
+        outer = parse_qsl(parts.query, keep_blank_values=True)
+
+        # アフィリエイトラッパーは実URLを pc / m / url のいずれかに持つ。
+        # 外側のクエリに f_* を足しても、リダイレクト先には引き継がれない。
+        rewritten = False
+        new_outer = []
+        for key, value in outer:
+            if key in ("pc", "m", "url") and value:
+                nested = with_dates(value)
+                if nested:
+                    new_outer.append((key, nested))
+                    rewritten = True
+                    continue
+            new_outer.append((key, value))
+
+        if rewritten:
+            return urlunsplit(parts._replace(query=urlencode(new_outer)))
+
+        # ラッパーではなく予約ページ直リンクの場合
+        return with_dates(plan_list_url) or plan_list_url
     except Exception:
         return plan_list_url
 

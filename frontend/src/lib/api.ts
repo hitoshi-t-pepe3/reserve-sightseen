@@ -207,25 +207,51 @@ export function buildReserveUrl(
   const [y2, m2, d2] = checkout.split('-').map(Number);
   if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return planListUrl;
 
+  const presets: Record<string, string> = {
+    f_nen1: String(y1),
+    f_tuki1: String(m1),
+    f_hi1: String(d1),
+    f_nen2: String(y2),
+    f_tuki2: String(m2),
+    f_hi2: String(d2),
+    f_otona_su: String(adults),
+    f_heya_su: String(rooms),
+  };
+
+  // 実URL（完全なURL文字列）に f_* を足して返す。URL として解釈できなければ null。
+  const withDates = (rawUrl: string): string | null => {
+    try {
+      const inner = new URL(rawUrl);
+      for (const [key, value] of Object.entries(presets)) {
+        inner.searchParams.set(key, value);
+      }
+      return inner.toString();
+    } catch {
+      return null;
+    }
+  };
+
   try {
     const url = new URL(planListUrl);
-    const pc = url.searchParams.get('pc');
-    if (pc) {
-      // pc は URL エンコード済みの文字列。デコードしてパラメータを追加し、再度エンコード
-      const decodedPc = decodeURIComponent(pc);
-      const params = new URLSearchParams(decodedPc);
-      params.set('f_nen1', String(y1));
-      params.set('f_tuki1', String(m1));
-      params.set('f_hi1', String(d1));
-      params.set('f_nen2', String(y2));
-      params.set('f_tuki2', String(m2));
-      params.set('f_hi2', String(d2));
-      params.set('f_otona_su', String(adults));
-      params.set('f_heya_su', String(rooms));
-      url.searchParams.set('pc', params.toString());
-      return url.toString();
+
+    // アフィリエイトラッパーは実URLを pc / m / url のいずれかに持つ。
+    // searchParams.get は既に1回デコード済みの値を返すので、ここで
+    // decodeURIComponent を重ねてはいけない。同様に set が1回エンコードするため、
+    // 自前でエンコードしても二重エンコードになる。
+    let rewritten = false;
+    for (const key of ['pc', 'm', 'url']) {
+      const rawUrl = url.searchParams.get(key);
+      if (!rawUrl) continue;
+      const next = withDates(rawUrl);
+      if (next) {
+        url.searchParams.set(key, next);
+        rewritten = true;
+      }
     }
-    return planListUrl;
+    if (rewritten) return url.toString();
+
+    // ラッパーではなく予約ページ直リンクの場合
+    return withDates(planListUrl) ?? planListUrl;
   } catch {
     return planListUrl;
   }
