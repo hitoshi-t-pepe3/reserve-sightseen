@@ -315,6 +315,24 @@ def _looks_non_japanese(text: str) -> bool:
     return ratio < 0.15
 
 
+_YMD_DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日")
+_PARTY_SIZE = re.compile(r"\d+\s*人")
+
+
+def _looks_like_complete_booking_request(user_message: str) -> bool:
+    """ユーザーの元メッセージに「宿泊日」と「人数」が明示されているか判定する。
+
+    システムプロンプトは「行き先・宿泊日・人数が揃ったら、文章を書き始める前に
+    まずツールを呼び出してください」と指示しているが、flash-lite はこの条件が
+    満たされていても検索ツールを一切呼ばずに知識ベースの文章だけを返すことがある
+    （search_hotels 経由の後続チェックとは別の、より根本的な失敗）。
+    厳密な自然言語理解はできないため、日付と人数という機械的に検出しやすい
+    2つのシグナルが両方そろっているメッセージに限定して判定する
+    （偽陽性があっても max_attempts 内の追加試行1回で済むため実害は小さい）。
+    """
+    return bool(_YMD_DATE.search(user_message) and _PARTY_SIZE.search(user_message))
+
+
 def _build_rakuten_reserve_url(
     plan_list_url: Optional[str],
     checkin: Optional[str],
@@ -1040,16 +1058,31 @@ async def chat_with_gemini(
                 preserved_itinerary = state.get("itinerary")
                 continue
 
-            # 上記以外（通常の宿泊プラン等）でも、search_hotels/search_tourist_spots が
-            # 呼ばれた（=行き先・日程・人数が揃い検索まで進んだ）のに create_itinerary が
-            # 呼ばれずに終わるのは flash-lite の頻出失敗。nearby_mode 同様やり直す。
+            # 上記以外（通常の宿泊プラン等）でも、create_itinerary が呼ばれずに
+            # 終わるのは flash-lite の頻出失敗。2パターンある:
+            #   (a) search_hotels/search_tourist_spots は呼んだが create_itinerary
+            #       だけ呼び忘れた
+            #   (b) 宿泊日・人数が揃っているのに検索ツールを一切呼ばず、
+            #       知識ベースの文章だけを返した（(a) より根本的な失敗。
+            #       hotels=0 の smoke test 失敗で実際に観測された）
+            # nearby_mode 同様、いずれもやり直す。
             if (
                 not is_last_attempt
                 and not nearby_mode
-                and state.get("searched_for_plan")
                 and not state["itinerary"]
+                and (
+                    state.get("searched_for_plan")
+                    or (
+                        not state.get("tool_called")
+                        and _looks_like_complete_booking_request(user_message)
+                    )
+                )
             ):
-                last_error = Exception("検索は行われましたが日程表が生成されませんでした")
+                last_error = Exception(
+                    "検索は行われましたが日程表が生成されませんでした"
+                    if state.get("searched_for_plan")
+                    else "行き先・宿泊日・人数が揃っているのにツールが一切呼ばれませんでした"
+                )
                 preserved_itinerary = state.get("itinerary")
                 continue
 
