@@ -97,6 +97,7 @@ try:
   d = json.load(sys.stdin)
   response = d.get("response", "")
   itinerary = d.get("itinerary")
+  hotels = d.get("hotels") or []
 
   # レスポンスは日本語であること
   assert response and len(response) > 5, f"応答が短すぎる: {response[:50]}"
@@ -110,7 +111,9 @@ try:
     print(f"OK: create_itinerary 成功 (days={len(days)}, items={items_count})")
   else:
     # LLM が create_itinerary を呼ばないことが実際にある（毎回ではない）。
-    # デプロイを止めるほどではないが "OK" と表示すると見逃すので警告扱いにする。
+    # hotels の有無で「search_hotels は呼ばれたが create_itinerary だけ
+    # 呼ばれなかった」のか「search_hotels すら呼ばれていない」のかを区別する。
+    print(f"ITINERARY_MISSING_DETAIL: hotels件数={len(hotels)}, 応答文字数={len(response)}")
     print("ITINERARY_MISSING: 応答は返ったが日程表がない（create_itinerary が呼ばれていない）")
 except Exception as e:
   sys.exit(f"Smoke test 失敗: /api/chat の応答が不正: {e}")
