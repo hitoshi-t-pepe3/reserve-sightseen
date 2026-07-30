@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException
+from datetime import datetime
+from typing import Optional
 from app.tools.route_optimizer import (
     RouteOptimizer,
     OptimizeRouteRequest,
@@ -11,8 +13,13 @@ from app.tools.route_recommendations import (
     route_recommender,
 )
 from app.tools.route_sharing import route_sharing_manager
+from app.models.bitchat import PlanChatEvent, ChatChannel, ChatMember
 
 router = APIRouter()
+
+# In-memory storage for plan-based chat metadata (will be replaced with DB in production)
+plan_chat_storage: dict = {}  # {plan_id: ChatChannel}
+chat_members_storage: dict = {}  # {channel_id: [ChatMember, ...]}
 
 
 @router.post("/route/optimize", response_model=OptimizeRouteResponse, tags=["route"])
@@ -103,3 +110,137 @@ async def restore_route(share_id: str) -> dict:
         return route_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Restore error: {str(e)}")
+
+
+@router.post("/route/share-with-chat", tags=["bitchat"])
+async def share_with_chat(route_data: dict) -> dict:
+    """
+    プランを Bitchat チャンネルと共に共有する。
+
+    Request:
+    - itinerary: イテラリオブジェクト（タイトルなど）
+    - title: プランのタイトル
+    - planId: プラン ID（省略時は自動生成）
+
+    Response:
+    - planId: プラン ID
+    - shareUrl: 通常のシェア URL
+    - chatChannelId: Bitchat チャンネル ID
+    - chatInviteUrl: Bitchat チャンネル招待 URL
+    - createdAt: 作成日時
+    """
+    try:
+        shared_plan = route_sharing_manager.create_shared_plan_with_chat(route_data)
+        plan_id = shared_plan["planId"]
+        channel_id = shared_plan["chatChannelId"]
+
+        # チャンネルメタデータを保存
+        plan_chat_storage[plan_id] = ChatChannel(
+            channel_id=channel_id,
+            plan_id=plan_id,
+            title=route_data.get("title", "無題のプラン"),
+            description=route_data.get("description"),
+            created_at=datetime.utcnow(),
+            member_count=0,
+            is_active=True,
+        )
+        chat_members_storage[channel_id] = []
+
+        return shared_plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share with chat error: {str(e)}")
+
+
+@router.get("/plan/{plan_id}/chat-members", tags=["bitchat"])
+async def get_chat_members(plan_id: str) -> dict:
+    """
+    プランの Bitchat メンバー情報を取得する。
+
+    Parameters:
+    - plan_id: プラン ID
+
+    Response:
+    - plan_id: プラン ID
+    - channel_id: チャンネル ID
+    - title: プランのタイトル
+    - member_count: メンバー数
+    - members: メンバー情報リスト（最初の5人）
+    """
+    try:
+        if plan_id not in plan_chat_storage:
+            raise HTTPException(status_code=404, detail="Plan not found")
+
+        channel = plan_chat_storage[plan_id]
+        members = chat_members_storage.get(channel.channel_id, [])[:5]
+
+        return {
+            "plan_id": plan_id,
+            "channel_id": channel.channel_id,
+            "title": channel.title,
+            "member_count": len(members),
+            "members": [
+                {
+                    "pubkey": m.pubkey,
+                    "display_name": m.display_name,
+                    "joined_at": m.joined_at.isoformat(),
+                }
+                for m in members
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Get chat members error: {str(e)}")
+
+
+@router.post("/plan/{plan_id}/chat-message", tags=["bitchat"])
+async def log_chat_message(plan_id: str, message_data: dict) -> dict:
+    """
+    プランチャットメッセージをログに記録する（分析用）。
+
+    Parameters:
+    - plan_id: プラン ID
+
+    Request:
+    - author_pubkey: 送信者の Nostr 公開鍵
+    - content: メッセージ内容
+    - day: 旅行日（省略可能）
+    - location: 場所（省略可能）
+
+    Response:
+    - success: 記録成功フラグ
+    - message_id: メッセージ ID
+    """
+    try:
+        if plan_id not in plan_chat_storage:
+            raise HTTPException(status_code=404, detail="Plan not found")
+
+        channel = plan_chat_storage[plan_id]
+
+        # メッセージをイベント化
+        event = PlanChatEvent(
+            channel_id=channel.channel_id,
+            plan_id=plan_id,
+            author_pubkey=message_data.get("author_pubkey"),
+            content=message_data.get("content"),
+            day=message_data.get("day"),
+            location=message_data.get("location"),
+        )
+
+        # メンバー登録（初回のみ）
+        members = chat_members_storage.get(channel.channel_id, [])
+        if not any(m.pubkey == event.author_pubkey for m in members):
+            members.append(
+                ChatMember(
+                    channel_id=channel.channel_id,
+                    pubkey=event.author_pubkey,
+                    display_name=message_data.get("display_name"),
+                )
+            )
+            chat_members_storage[channel.channel_id] = members
+            plan_chat_storage[plan_id].member_count = len(members)
+
+        return {
+            "success": True,
+            "message_id": f"{channel.channel_id}:{event.created_at}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Log chat message error: {str(e)}")

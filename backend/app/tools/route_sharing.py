@@ -1,5 +1,8 @@
 import base64
 import json
+import hashlib
+import uuid
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -50,6 +53,24 @@ class RouteSharingManager:
         """ルート情報からシェア URL を生成"""
         share_id = self.encode_route(route)
         return f"{base_url}/routes/{share_id}"
+
+    def generate_chat_channel_id(self, plan_id: str) -> str:
+        """プラン ID からプランベース Bitchat チャンネル ID を生成（SHA256）"""
+        hash_obj = hashlib.sha256(plan_id.encode())
+        return f"plan_{hash_obj.hexdigest()[:32]}"
+
+    def create_shared_plan_with_chat(self, route_data: dict) -> dict:
+        """プランと Bitchat チャンネルを同時に作成"""
+        plan_id = route_data.get("planId") or str(uuid.uuid4())
+        channel_id = self.generate_chat_channel_id(plan_id)
+
+        return {
+            "planId": plan_id,
+            "shareUrl": f"/routes/{plan_id}",
+            "chatChannelId": channel_id,
+            "chatInviteUrl": f"bitchat://channel/{channel_id}",
+            "createdAt": datetime.utcnow().isoformat()
+        }
 
 
 # シングルトンインスタンス
