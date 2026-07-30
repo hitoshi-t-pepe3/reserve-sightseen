@@ -16,6 +16,7 @@ import { NipponTravelAd } from "./NipponTravelAd";
 import { NearbyChat } from "./NearbyChat";
 import { ItineraryMapEditor } from "./ItineraryMapEditor";
 import { ItineraryMapView } from "./ItineraryMapView";
+import { RouteRecommendations } from "./RouteRecommendations";
 import { trackAffiliateClick } from "@/lib/analytics";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
@@ -297,8 +298,9 @@ export function ItineraryTimeline({
       )}
 
       {showMapView ? (
-        <div className="p-4">
+        <div className="p-4 space-y-4">
           <ItineraryMapView itinerary={view} />
+          <RouteRecommendations itinerary={view} />
         </div>
       ) : (
         <>

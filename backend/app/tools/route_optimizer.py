@@ -23,12 +23,15 @@ class OptimizedWaypoint(BaseModel):
     order: int
     distance_from_prev_km: float
     duration_from_prev_minutes: int
+    description: Optional[str] = None  # ルートの説明（例：「清水寺方面へ」）
 
 
 class OptimizeRouteResponse(BaseModel):
     optimized_order: list[OptimizedWaypoint]
     total_distance_km: float
     total_duration_minutes: int
+    route_summary: Optional[str] = None  # ルート全体の説明（例：「京都東山エリアを効率的に巡ります」）
+    recommended_transport: Optional[str] = None  # 推奨交通手段（例：「徒歩と電車」）
 
 
 class RouteOptimizer:
@@ -148,11 +151,42 @@ class RouteOptimizer:
             ))
             prev_loc = (wp.lat, wp.lng)
 
+        # ルート説明文と推奨交通手段を生成
+        route_summary = self._generate_route_summary(request.origin.name, optimized_waypoints, total_distance_km)
+        recommended_transport = self._generate_recommended_transport(total_distance_km, len(optimized_waypoints))
+
         return OptimizeRouteResponse(
             optimized_order=optimized_waypoints,
             total_distance_km=round(total_distance_km, 2),
             total_duration_minutes=int(total_duration_minutes),
+            route_summary=route_summary,
+            recommended_transport=recommended_transport,
         )
+
+    def _generate_route_summary(self, origin_name: str, waypoints: list[OptimizedWaypoint], total_distance_km: float) -> str:
+        """ルート全体の説明文を生成"""
+        if not waypoints:
+            return ""
+
+        place_names = [wp.name for wp in waypoints[:3]]  # 最初の3つまで
+        if len(waypoints) > 3:
+            place_names.append(f"など{len(waypoints)}箇所")
+
+        places_text = "・".join(place_names)
+        distance_text = f"総距離約{total_distance_km}km" if total_distance_km > 0 else ""
+
+        return f"{places_text}を効率的に巡ります。{distance_text}"
+
+    def _generate_recommended_transport(self, total_distance_km: float, num_waypoints: int) -> str:
+        """推奨交通手段を生成"""
+        if total_distance_km <= 5:
+            return "徒歩"
+        elif total_distance_km <= 15:
+            return "徒歩と電車"
+        elif total_distance_km <= 30:
+            return "電車とバス"
+        else:
+            return "電車"
 
 
 # シングルトンインスタンス

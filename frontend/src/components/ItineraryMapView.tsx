@@ -20,6 +20,8 @@ interface RouteOptimizeResponse {
   optimized_order: OptimizedWaypoint[];
   total_distance_km: number;
   total_duration_minutes: number;
+  route_summary?: string;
+  recommended_transport?: string;
 }
 
 export function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
@@ -157,16 +159,23 @@ export function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
           src={mapUrl.toString()}
         />
       </div>
-      <div className="p-3 bg-white border-t border-gray-200">
+      <div className="p-3 bg-white border-t border-gray-200 space-y-2">
         {loading && <p className="text-xs text-gray-500">📍 ルート最適化中...</p>}
         {optimizedRoute ? (
-          <div className="text-xs text-gray-600 space-y-1">
-            <p>
-              📍 {locations.length}件の地点を最適順序で表示
-            </p>
-            <p>
-              🗺️ 総距離: {optimizedRoute.total_distance_km}km | 所要時間: 約{Math.round(optimizedRoute.total_duration_minutes / 60)}時間
-            </p>
+          <div className="text-xs text-gray-600 space-y-2">
+            {optimizedRoute.route_summary && (
+              <p className="font-medium text-gray-700">
+                ✨ {optimizedRoute.route_summary}
+              </p>
+            )}
+            <div className="flex items-center justify-between text-xs">
+              <span>🗺️ {optimizedRoute.total_distance_km}km | 約{Math.round(optimizedRoute.total_duration_minutes / 60)}時間</span>
+              {optimizedRoute.recommended_transport && (
+                <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                  🚶 {optimizedRoute.recommended_transport}
+                </span>
+              )}
+            </div>
           </div>
         ) : (
           <p className="text-xs text-gray-600">
