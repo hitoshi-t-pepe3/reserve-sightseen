@@ -17,6 +17,7 @@ import { NearbyChat } from "./NearbyChat";
 import { ItineraryMapEditor } from "./ItineraryMapEditor";
 import { ItineraryMapView } from "./ItineraryMapView";
 import { RouteRecommendations } from "./RouteRecommendations";
+import { SeasonalRouteSuggestion } from "./SeasonalRouteSuggestion";
 import { trackAffiliateClick } from "@/lib/analytics";
 import { encodeGeohash, decodeGeohashCenter } from "@/lib/geohash";
 
@@ -304,6 +305,13 @@ export function ItineraryTimeline({
         </div>
       ) : (
         <>
+          {/* 季節別ルート提案（旅行プランのみ） */}
+          {view.mode === "travel" && (
+            <div className="px-4 pt-4">
+              <SeasonalRouteSuggestion />
+            </div>
+          )}
+
           {view.days.map((day, di) => (
         <div key={di} className="px-4 py-3">
           {/* 1日だけの散歩・ドライブコースはヘッダーと重複するのでラベルを出さない */}

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { ItineraryTimeline } from "./ItineraryTimeline";
 import { WalkModeScreen } from "./WalkModeScreen";
 import { BudgetAllocationPanel } from "./BudgetAllocationPanel";
+import { ShareButton } from "./ShareButton";
+import { RoutePopularity } from "./RoutePopularity";
+import { RouteReview } from "./RouteReview";
 import {
   SavedPlan,
   ReservationInfo,
@@ -172,6 +175,12 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
               </div>
               {opened && (
                 <div className="p-3 space-y-3">
+                  {/* シェアボタン */}
+                  <ShareButton itinerary={plan.itinerary} planId={plan.id} />
+
+                  {/* ルート人気度 */}
+                  <RoutePopularity itinerary={plan.itinerary} planId={plan.id} />
+
                   {/* チェックイン情報（旅行プランのみ） */}
                   {plan.itinerary.mode === "travel" && (
                     <ReservationPanel plan={plan} onUpdate={(res) => setPlans(updateReservation(plan.id, res))} />
@@ -198,6 +207,9 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                     onDeleteItem={(dayIndex, itemIndex) => handleDeleteItem(plan, dayIndex, itemIndex)}
                     onSaveWholeItinerary={(next) => setPlans(updatePlan(plan.id, next))}
                   />
+
+                  {/* レビュー */}
+                  <RouteReview planId={plan.id} itinerary={plan.itinerary} />
                 </div>
               )}
             </div>
