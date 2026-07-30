@@ -37,6 +37,11 @@ log() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# smoke test 中の「致命的ではないが見逃してはいけない」問題。
+# 件数を数えておき、1件でもあれば最後に「全件成功」と表示しない。
+SMOKE_WARN_COUNT=0
+smoke_warn() { SMOKE_WARN_COUNT=$((SMOKE_WARN_COUNT + 1)); warn "$*"; }
+
 # 必須チェック
 [[ -z "$PROJECT_ID" ]] && error "PROJECT_ID が設定されていません。export PROJECT_ID=your-project-id してください。"
 
@@ -82,7 +87,8 @@ print(f"OK: search-area(京都) {d['\''count'\'']}件 / 1件目: {name}")
 
   # 4. Itinerary 生成テスト: チャットで日程表が返ってくるか
   log "Testing: Itinerary generation..."
-  curl -fsS --max-time 60 "$backend_url/api/chat" \
+  local itinerary_out
+  itinerary_out="$(curl -fsS --max-time 60 "$backend_url/api/chat" \
     -H "Content-Type: application/json" \
     -d '{"message":"京都に2024-08-01から2024-08-03、大人2人で泊まりたい","conversation_history":[]}' \
     | python3 -c '
@@ -103,10 +109,16 @@ try:
     assert items_count > 0, f"全 items が0件"
     print(f"OK: create_itinerary 成功 (days={len(days)}, items={items_count})")
   else:
-    print("OK: 応答取得 (itinerary なし、日程表は呼び出されていない可能性)")
+    # LLM が create_itinerary を呼ばないことが実際にある（毎回ではない）。
+    # デプロイを止めるほどではないが "OK" と表示すると見逃すので警告扱いにする。
+    print("ITINERARY_MISSING: 応答は返ったが日程表がない（create_itinerary が呼ばれていない）")
 except Exception as e:
   sys.exit(f"Smoke test 失敗: /api/chat の応答が不正: {e}")
-' || error "Smoke test 失敗: /api/chat の応答が不正です"
+')" || error "Smoke test 失敗: /api/chat の応答が不正です"
+  echo "$itinerary_out"
+  if [[ "$itinerary_out" == *ITINERARY_MISSING* ]]; then
+    smoke_warn "日程表が生成されませんでした（LLM が create_itinerary を呼んでいない）"
+  fi
 
   # 5. ホテルカード生成テスト: 楽天・じゃらんリンクが有効か
   log "Testing: Hotel card affiliate URLs..."
@@ -140,11 +152,28 @@ except Exception as e:
 
   # 6. アフィリエイトURL生成テスト: buildReserveUrl の出力が 400 bad request になっていないか
   log "Testing: Affiliate URL validity..."
-  curl -fsS --max-time 30 "$backend_url/api/hotels/search-area?area=%E4%BA%AC%E9%83%BD&hits=1" \
-    | python3 << 'PYTHON_EOF' || warn "URL テストで問題が検出されました"
-import json, sys, subprocess
+  # curl -f はエラー時に本文を捨ててしまい、楽天が返した実際のステータス
+  # （429 なのか 5xx なのか）が分からなくなる。-f を使わず本文と HTTP コードを
+  # 両方受け取って、失敗したらそのまま表示する。
+  local affiliate_resp affiliate_status affiliate_body
+  affiliate_resp=$(curl -sS --max-time 30 -w $'\n%{http_code}' \
+    "$backend_url/api/hotels/search-area?area=%E4%BA%AC%E9%83%BD&hits=1" 2>&1) \
+    || affiliate_resp=$'curl 自体が失敗しました\n000'
+  affiliate_status="${affiliate_resp##*$'\n'}"
+  affiliate_body="${affiliate_resp%$'\n'*}"
+
+  if [[ "$affiliate_status" != "200" ]]; then
+    smoke_warn "アフィリエイトURL検証を実施できません: search-area が HTTP ${affiliate_status} を返しました"
+    echo "  レスポンス本文(先頭300字): $(printf '%s' "$affiliate_body" | head -c 300)"
+  else
+  AFFILIATE_JSON="$affiliate_body" python3 << 'PYTHON_EOF' || smoke_warn "アフィリエイトURL検証で問題が検出されました"
+import json, os, sys, subprocess
 try:
-  d = json.load(sys.stdin)
+  d = json.loads(os.environ["AFFILIATE_JSON"])
+except Exception as e:
+  sys.exit(f"search-area の応答を JSON として解釈できません: {e}")
+
+try:
   hotels = d.get("hotels", [])
   if not hotels:
     print("OK: ホテルが0件なので URL テストをスキップ")
@@ -185,10 +214,17 @@ try:
   else:
     print(f"OK: affiliate URL が有効 (HTTP {status})")
 except Exception as e:
-  print(f"OK: URL テストをスキップ ({e})")
+  # ここに来るのは想定外の失敗。以前は "OK: スキップ" と表示していたため
+  # テストが一度も実行されていないことに気づけなかった。
+  sys.exit(f"アフィリエイトURL検証が想定外の理由で失敗しました: {e}")
 PYTHON_EOF
+  fi
 
-  log "=== Smoke Test 全件成功 ==="
+  if (( SMOKE_WARN_COUNT > 0 )); then
+    warn "=== Smoke Test 完了: ${SMOKE_WARN_COUNT} 件の警告あり（上記 [WARN] を確認してください）==="
+  else
+    log "=== Smoke Test 全件成功 ==="
+  fi
 }
 
 # ================================================================
