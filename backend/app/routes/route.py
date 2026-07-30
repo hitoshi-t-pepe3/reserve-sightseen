@@ -10,6 +10,7 @@ from app.tools.route_recommendations import (
     RouteRecommendationsResponse,
     route_recommender,
 )
+from app.tools.route_sharing import route_sharing_manager
 
 router = APIRouter()
 
@@ -59,3 +60,46 @@ async def get_route_recommendations(request: RecommendationRequest) -> RouteReco
         return route_recommender.get_recommendations(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Recommendations error: {str(e)}")
+
+
+@router.post("/route/share", tags=["route"])
+async def share_route(route_data: dict) -> dict:
+    """
+    ルート情報をシェア可能な URL に変換する。
+
+    Request:
+    - route_data: ルート情報（title, mode, transport, days など）
+
+    Response:
+    - share_id: シェア ID（Base64 エンコード済み）
+    - share_url: シェア可能な URL
+    """
+    try:
+        share_id = route_sharing_manager.encode_route(route_data)
+        share_url = route_sharing_manager.generate_share_url(route_data)
+        return {
+            "share_id": share_id,
+            "share_url": share_url,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Share error: {str(e)}")
+
+
+@router.get("/route/restore/{share_id}", tags=["route"])
+async def restore_route(share_id: str) -> dict:
+    """
+    シェア ID からルート情報を復元する。
+
+    Parameters:
+    - share_id: シェア ID（URL パスから取得）
+
+    Response:
+    - route_data: 復元されたルート情報
+    """
+    try:
+        route_data = route_sharing_manager.decode_route(share_id)
+        if not route_data:
+            raise HTTPException(status_code=404, detail="Route not found")
+        return route_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore error: {str(e)}")
