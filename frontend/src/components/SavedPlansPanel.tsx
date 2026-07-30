@@ -7,6 +7,7 @@ import { BudgetAllocationPanel } from "./BudgetAllocationPanel";
 import { ShareButton } from "./ShareButton";
 import { RoutePopularity } from "./RoutePopularity";
 import { RouteReview } from "./RouteReview";
+import { PlanChatPanel } from "./PlanChatPanel";
 import {
   SavedPlan,
   ReservationInfo,
@@ -41,6 +42,8 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
   const [walkModePlan, setWalkModePlan] = useState<SavedPlan | null>(null);
   // 予算管理パネル
   const [budgetPlanId, setBudgetPlanId] = useState<string | null>(null);
+  // プランチャットパネル
+  const [chatPlanId, setChatPlanId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -163,6 +166,12 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                   </button>
                 )}
                 <button
+                  onClick={() => setChatPlanId(chatPlanId === plan.id ? null : plan.id)}
+                  className="shrink-0 px-2.5 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-medium hover:bg-purple-100"
+                >
+                  💬 チャット
+                </button>
+                <button
                   onClick={() => handleDelete(plan)}
                   className={`shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
                     pendingDeleteId === plan.id
@@ -195,6 +204,16 @@ export function SavedPlansPanel({ isOpen, onClose }: SavedPlansPanelProps) {
                       />
                     </div>
                   )}
+
+                  {/* プランチャット */}
+                  {chatPlanId === plan.id && (
+                    <PlanChatPanel
+                      planId={plan.id}
+                      itinerary={plan.itinerary}
+                      onClose={() => setChatPlanId(null)}
+                    />
+                  )}
+
                   {/* 日程表 */}
                   <ItineraryTimeline
                     itinerary={plan.itinerary}
