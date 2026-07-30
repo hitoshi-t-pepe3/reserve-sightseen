@@ -89,6 +89,33 @@ export function ItineraryTimeline({
 
   const view = localItinerary ?? itinerary;
 
+  // Defensive checks and normalization
+  if (!view) {
+    console.error('ItineraryTimeline: view is null/undefined');
+    return null;
+  }
+
+  if (!Array.isArray(view.days)) {
+    console.error('ItineraryTimeline: view.days is not an array', { days: view.days, view });
+    return null;
+  }
+
+  if (view.days.length === 0) {
+    console.warn('ItineraryTimeline: view.days is empty', { view });
+    // Return a minimal view showing the error
+    return (
+      <div className="mb-4 bg-white border border-blue-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-blue-600 text-white px-4 py-3">
+          <p className="text-xs opacity-80">{view.mode === 'walk' ? '散歩コース' : view.mode === 'drive' ? 'ドライブコース' : '旅行プラン'}</p>
+          <h3 className="font-semibold">{view.title}</h3>
+        </div>
+        <div className="px-4 py-3 bg-amber-50 border-t border-amber-200 text-amber-800 text-sm">
+          ⚠️ 日程表が空です。もう一度リクエストしてください。
+        </div>
+      </div>
+    );
+  }
+
   const toggle = (key: string) =>
     setVisited((prev) => ({ ...prev, [key]: !prev[key] }));
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Itinerary, ItineraryItem } from "@/lib/api";
+import { Itinerary, ItineraryItem, searchPlaces, PlaceSearchResult } from "@/lib/api";
 
 declare global {
   namespace google {
@@ -81,6 +81,10 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
+  const [nearbyPlaces, setNearbyPlaces] = useState<PlaceSearchResult[]>([]);
+  const [showNearbyPopup, setShowNearbyPopup] = useState(false);
+  const [searchingNearby, setSearchingNearby] = useState(false);
+  const nearbySearchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // 最初の日の行程を取得（散歩は通常1日）
   const items = itinerary.days[0]?.items || [];
@@ -128,9 +132,9 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // Google Maps の初期化
+  // Google Maps の初期化（最初の1回だけ）
   useEffect(() => {
-    if (!currentLocation || !mapContainer.current) return;
+    if (!currentLocation || !mapContainer.current || map.current) return;
 
     // Google Maps スクリプトの読み込み確認
     if (typeof google === "undefined") {
@@ -138,7 +142,7 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
       return;
     }
 
-    // マップの作成
+    // マップの作成（初回のみ）
     map.current = new google.maps.Map(mapContainer.current, {
       zoom: 16,
       center: currentLocation,
@@ -148,12 +152,42 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
     // マーカーの作成
     createMarkers();
     updateCurrentLocationMarker();
-  }, [currentLocation]);
+  }, []);
 
-  // 現在地が変わったらマップを更新
+  // 現在地が変わったらマップを更新（位置情報が変わるたびに呼ばれる）
   useEffect(() => {
     if (!map.current || !currentLocation) return;
+    map.current.setCenter(currentLocation);
     updateCurrentLocationMarker();
+  }, [currentLocation]);
+
+  // 周辺のグルメ・観光地を検索（30秒ごと、ただし前の検索が終わるまで待つ）
+  useEffect(() => {
+    if (!currentLocation || searchingNearby) return;
+
+    // 前のタイムアウトをクリア
+    if (nearbySearchTimeout.current) clearTimeout(nearbySearchTimeout.current);
+
+    setSearchingNearby(true);
+    searchPlaces("restaurant", currentLocation)
+      .then((results) => {
+        setNearbyPlaces(results.slice(0, 3)); // 上位3件
+        setShowNearbyPopup(true);
+      })
+      .catch(() => {
+        // エラーは無視
+      })
+      .finally(() => {
+        setSearchingNearby(false);
+        // 30秒後に次の検索をスケジュール
+        nearbySearchTimeout.current = setTimeout(() => {
+          // トリガーされない（依存配列に currentLocation があるため）
+        }, 30000);
+      });
+
+    return () => {
+      if (nearbySearchTimeout.current) clearTimeout(nearbySearchTimeout.current);
+    };
   }, [currentLocation]);
 
   const createMarkers = () => {
@@ -212,7 +246,7 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
         position: currentLocation,
         map: map.current,
         title: "現在地",
-        icon: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+        icon: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
         zIndex: 1000,
       });
     } else {
@@ -225,12 +259,12 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
 
   const getMarkerIcon = (category: ItineraryItem["category"], isCurrentt: boolean) => {
     const icons: Record<ItineraryItem["category"], string> = {
-      spot: "http://maps.google.com/mapfiles/ms/icons/orange-dot.png",
-      meal: "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
-      hotel: "http://maps.google.com/mapfiles/ms/icons/purple-dot.png",
-      move: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+      spot: "https://maps.google.com/mapfiles/ms/icons/orange-dot.png",
+      meal: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+      hotel: "https://maps.google.com/mapfiles/ms/icons/purple-dot.png",
+      move: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
     };
-    return isCurrentt ? "http://maps.google.com/mapfiles/ms/icons/green-dot.png" : icons[category];
+    return isCurrentt ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png" : icons[category];
   };
 
   const handleCheckIn = (index: number) => {
@@ -319,6 +353,52 @@ export function WalkModeScreen({ itinerary, onClose }: WalkModeScreenProps) {
           ))}
         </div>
       </div>
+
+      {/* 周辺グルメ・観光地ポップアップ */}
+      {showNearbyPopup && nearbyPlaces.length > 0 && (
+        <div className="fixed inset-0 bg-black/40 z-40 flex items-end">
+          <div className="w-full bg-white rounded-t-2xl shadow-2xl max-h-[50vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-2xl">
+              <h3 className="font-semibold text-gray-900">🍽️ 周辺のグルメ・観光</h3>
+              <button
+                onClick={() => setShowNearbyPopup(false)}
+                className="text-gray-500 hover:text-gray-700 text-lg"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {nearbyPlaces.map((place) => (
+                <div key={place.place_id} className="px-4 py-3 hover:bg-gray-50">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900 text-sm">{place.name}</p>
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-1">{place.address}</p>
+                    </div>
+                    {place.rating && (
+                      <div className="flex items-center gap-1 ml-2">
+                        <span className="text-yellow-500">★</span>
+                        <span className="text-xs font-medium text-gray-700">{place.rating.toFixed(1)}</span>
+                        {place.user_ratings_total && (
+                          <span className="text-xs text-gray-500">({place.user_ratings_total})</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&center=${place.location.lat},${place.location.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs text-blue-600 hover:text-blue-800 font-medium mt-2"
+                  >
+                    Google Maps で見る →
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

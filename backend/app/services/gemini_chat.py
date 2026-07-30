@@ -41,6 +41,8 @@ def _system_instruction() -> str:
 - ホテル名・料金を回答に書いてよいのは、search_hotels の結果を受け取った後だけです。ツールを呼ばずに知識からホテルを提案することは禁止です。
 - 観光地を提案する前に必ず search_tourist_spots（現在地周辺なら search_spots_nearby）を呼びます。
 - 行き先・宿泊日・人数が揃ったら、文章を書き始める前にまずツールを呼び出してください。これは会話が何往復目でも同じです。
+- create_itinerary を呼ぶときは、必ず検索結果から抽出したスポット・ホテルデータを含めてください。検索結果なしに空の days を渡すことは禁止です。
+- **ツールを呼び出す際は function calling を使用し、Python コード（print() や API 呼び出しコード）をテキストで書かないでください。テキストでツール呼び出しを説明することも禁止です。**
 
 ## 進め方
 1. プラン作成には「行き先」「チェックイン日・チェックアウト日」「人数」が必要です。足りない情報だけを1回のメッセージで簡潔に質問してください（既に会話に出ている情報は聞き直さない）。
@@ -311,6 +313,77 @@ def _looks_non_japanese(text: str) -> bool:
         return False  # 短い相づち等は誤判定しやすいので対象外
     ratio = len(_JA_CHARS.findall(body)) / len(body)
     return ratio < 0.15
+
+
+def _build_rakuten_reserve_url(
+    plan_list_url: Optional[str],
+    checkin: Optional[str],
+    checkout: Optional[str],
+    adults: int = 2,
+) -> Optional[str]:
+    """楽天トラベルの予約ページURLに宿泊日・人数をプリセットする。
+
+    Frontend の buildReserveUrl と同じロジック。
+    """
+    if not plan_list_url:
+        return None
+    if not checkin or not checkout:
+        return plan_list_url
+
+    try:
+        y1, m1, d1 = map(int, checkin.split('-'))
+        y2, m2, d2 = map(int, checkout.split('-'))
+        if not all([y1, m1, d1, y2, m2, d2]):
+            return plan_list_url
+    except (ValueError, TypeError):
+        return plan_list_url
+
+    extra = (
+        f"&f_nen1={y1}&f_tuki1={m1}&f_hi1={d1}"
+        f"&f_nen2={y2}&f_tuki2={m2}&f_hi2={d2}"
+        f"&f_otona_su={adults}&f_heya_su=1"
+    )
+
+    try:
+        if "?" in plan_list_url:
+            return plan_list_url + extra
+        else:
+            return plan_list_url + "?" + extra.lstrip("&")
+    except Exception:
+        return plan_list_url
+
+
+def _embed_hotel_links(
+    text: str,
+    hotels: List[dict],
+    checkin: Optional[str],
+    checkout: Optional[str],
+    adults: int = 2,
+) -> str:
+    """応答テキスト内のホテル名を楽天アフィリエイトリンクに置き換える。"""
+    if not hotels:
+        return text
+
+    for hotel in hotels:
+        basic_info = hotel.get("hotelBasicInfo", {})
+        hotel_name = basic_info.get("hotelName")
+        plan_list_url = basic_info.get("planListUrl")
+
+        if not hotel_name or not plan_list_url:
+            continue
+
+        reserve_url = _build_rakuten_reserve_url(plan_list_url, checkin, checkout, adults)
+        if not reserve_url:
+            continue
+
+        # ホテル名を markdown link に置き換える（既にリンクになっているものは避ける）
+        # 単純な word boundary での置き換えは誤マッチを招くため、
+        # 「ホテル名」のような単語単位で置き換える
+        pattern = r'(?<!\[)' + re.escape(hotel_name) + r'(?![\w\]（-])'
+        replacement = f'[{hotel_name}]({reserve_url})'
+        text = re.sub(pattern, replacement, text)
+
+    return text
 
 
 def _compact_hotels(hotels: List[dict]) -> List[dict]:
@@ -640,16 +713,38 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
     from_current = mode in ("walk", "drive")
 
     days_out = []
-    for day in args.get("days") or []:
+    days_input = args.get("days") or []
+    print(f"[DEBUG] create_itinerary: title={title}, mode={mode}, days_input count={len(days_input)}, days type={type(days_input)}")
+    if not isinstance(days_input, list):
+        print(f"[DEBUG] create_itinerary: ERROR - days_input is not a list")
+        state["itinerary"] = {
+            "title": title,
+            "mode": mode,
+            "transport": transport,
+            "booking": None,
+            "days": [],
+        }
+        return {"error": f"days は配列である必要があります。受け取った値: {type(days_input)}"}
+
+    for day_idx, day in enumerate(days_input):
         if not isinstance(day, dict):
+            print(f"[DEBUG] create_itinerary: warning - skipping non-dict day at index {day_idx}")
             continue
         items_out = []
         prev_query = None  # 直前の訪問地点（経路リンクの起点）
-        for item in day.get("items") or []:
+        day_items = day.get("items") or []
+        print(f"[DEBUG] create_itinerary: day[{day_idx}] has {len(day_items)} items, items type={type(day_items)}")
+        if not isinstance(day_items, list):
+            print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items is not a list: {type(day_items)}")
+            continue
+
+        for item_idx, item in enumerate(day_items):
             if not isinstance(item, dict):
+                print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items[{item_idx}] is not a dict: {type(item)}")
                 continue
             name = str(item.get("name") or "").strip()
             if not name:
+                print(f"[DEBUG] create_itinerary: warning - day[{day_idx}].items[{item_idx}] has no name")
                 continue
             category = item.get("category") if item.get("category") in ("spot", "meal", "hotel", "move") else "spot"
             address = str(item.get("address") or "").strip()
@@ -707,9 +802,23 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
 
             label = _clean_response_text(str(day.get("label") or "")).strip()
             days_out.append({"label": label, "items": items_out})
+            print(f"[DEBUG] create_itinerary: added day with {len(items_out)} items")
+        else:
+            print(f"[DEBUG] create_itinerary: day skipped (no items)")
 
+    print(f"[DEBUG] create_itinerary: days_out total count={len(days_out)}")
     if not days_out:
-        return {"error": "days に行程が入っていません。スポットを入れて再度呼んでください。"}
+        print(f"[DEBUG] create_itinerary: WARNING - no days with items, creating fallback itinerary")
+        # If no items were provided, create a fallback itinerary with an empty placeholder
+        # This prevents silent failures and gives the user feedback
+        state["itinerary"] = {
+            "title": title,
+            "mode": mode,
+            "transport": transport,
+            "booking": None,
+            "days": [],  # Empty days - Frontend will show error message
+        }
+        return {"status": "ok", "message": "日程表を登録しましたが、スポット情報が見つかりませんでした。具体的なスポット名を入れてもう一度お試しください。"}
 
     booking = None
     link = _BOOKING_LINKS.get(transport or "") if mode == "travel" else None
@@ -723,6 +832,7 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
         "booking": booking,
         "days": days_out,
     }
+    print(f"[DEBUG] create_itinerary: SUCCESS - set state['itinerary'] with {len(days_out)} days")
     return {
         "status": "ok",
         "message": "日程表を登録しました。アプリの画面にタイムラインUIで自動表示されるため、本文は日程表のデータや構造を含めず、プランの魅力の要約とホテル案内のみ簡潔に書いてください。",
@@ -731,6 +841,7 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
 
 async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     state["tool_called"] = True
+    print(f"[DEBUG] _execute_tool: calling {name}")
     if name == "search_hotels":
         return await _run_search_hotels(args, state)
     if name == "search_tourist_spots":
@@ -738,7 +849,9 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
     if name == "search_spots_nearby":
         return await _run_search_nearby(args)
     if name == "create_itinerary":
-        return await _run_create_itinerary(args, state)
+        result = await _run_create_itinerary(args, state)
+        print(f"[DEBUG] _execute_tool: create_itinerary returned, state['itinerary']={bool(state.get('itinerary'))}")
+        return result
     return {"error": f"未知のツール: {name}"}
 
 
@@ -809,11 +922,15 @@ async def chat_with_gemini(
     # いずれも一過性の失敗なので、会話を最初からやり直す形で最大3回試行する。
     _max_attempts = 3
     last_error: Optional[Exception] = None
+    # 複数の attempt にまたがって itinerary を保持する。
+    # 最初の attempt で create_itinerary が成功しても、次の attempt がある場合は
+    # その itinerary を継承する必要がある
+    preserved_itinerary: Optional[Dict[str, Any]] = None
     for _attempt in range(_max_attempts):
         state: Dict[str, Any] = {
             "hotels": [],
             "search_context": None,
-            "itinerary": None,
+            "itinerary": preserved_itinerary,  # 前の attempt の itinerary を引き継ぐ
             "tool_called": False,
             "user_location": user_location,
         }
@@ -833,10 +950,12 @@ async def chat_with_gemini(
             chat = model.start_chat(history=_build_history(conversation_history))
             response = await chat.send_message_async(attempt_message)
 
-            for _ in range(_MAX_TOOL_TURNS):
+            for tool_turn in range(_MAX_TOOL_TURNS):
                 calls = _extract_function_calls(response)
                 if not calls:
+                    print(f"[DEBUG] chat_with_gemini attempt {_attempt}: no more tool calls after {tool_turn} turns")
                     break
+                print(f"[DEBUG] chat_with_gemini attempt {_attempt} turn {tool_turn}: {len(calls)} tool calls")
                 response_parts = []
                 for call in calls:
                     args = _to_plain(call.args) if call.args else {}
@@ -847,6 +966,7 @@ async def chat_with_gemini(
                 response = await chat.send_message_async(response_parts)
 
             text = _clean_response_text(_extract_text(response))
+            print(f"[DEBUG] chat_with_gemini: after tool calls, state['itinerary']={bool(state['itinerary'])}, text_len={len(text)}")
             if not text:
                 # 本文が空でも日程表やホテルが取れていれば成果はあるので、
                 # エラー風の文言ではなく案内文にする
@@ -874,6 +994,7 @@ async def chat_with_gemini(
                 and not state["itinerary"]
             ):
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
+                preserved_itinerary = state.get("itinerary")
                 continue
 
             # 移動手段（電車・バス・飛行機）指定なのに乗車の行程（move）が
@@ -889,10 +1010,20 @@ async def chat_with_gemini(
                 )
             ):
                 last_error = Exception("移動手段指定なのに乗車の行程が入りませんでした")
+                preserved_itinerary = state.get("itinerary")
                 continue
 
+            print(f"[DEBUG] chat_with_gemini: SUCCESS, returning itinerary={bool(state['itinerary'])}")
+            # ホテル名をマークダウンリンク（楽天アフィリエイト）に置き換える
+            text_with_links = _embed_hotel_links(
+                text,
+                state["hotels"],
+                state["search_context"].get("checkin") if state["search_context"] else None,
+                state["search_context"].get("checkout") if state["search_context"] else None,
+                state["search_context"].get("adults", 2) if state["search_context"] else 2,
+            )
             return {
-                "text": text,
+                "text": text_with_links,
                 "hotels": state["hotels"],
                 "search_context": state["search_context"],
                 "itinerary": state["itinerary"],
@@ -900,8 +1031,11 @@ async def chat_with_gemini(
 
         except Exception as e:
             last_error = e
+            print(f"[DEBUG] chat_with_gemini: exception in attempt {_attempt}: {str(e)}")
+            preserved_itinerary = state.get("itinerary")
             continue
 
+    print(f"[DEBUG] chat_with_gemini: ALL ATTEMPTS FAILED, last_error={str(last_error)}")
     return {
         "text": f"申し訳ありませんが、エラーが発生しました: {str(last_error)}",
         "hotels": [],
