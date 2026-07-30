@@ -19,6 +19,7 @@ from vertexai.generative_models import (
 from app.config import settings
 from app.tools.rakuten_travel import AREA_COORDS, rakuten_travel_tool
 from app.tools.google_places import google_places_tool
+from app.tools.route_optimizer import route_optimizer, OptimizeRouteRequest, Location
 
 # Initialize Vertex AI
 _initialized = False
@@ -547,6 +548,80 @@ def _fallback_current_location(state: Dict[str, Any]) -> tuple:
         return None, None
 
 
+def _optimize_itinerary_order(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """travel モードの日程表をルート最適化（効率的な訪問順序）で再配置"""
+    # move カテゴリと座標がないアイテムを分離
+    move_items = [item for item in items if item.get("category") == "move"]
+    location_items = [
+        item for item in items
+        if item.get("category") != "move" and item.get("lat") is not None and item.get("lng") is not None
+    ]
+
+    # 座標がないアイテムも分離（スキップされる）
+    non_location_items = [
+        item for item in items
+        if item.get("category") != "move" and (item.get("lat") is None or item.get("lng") is None)
+    ]
+
+    if len(location_items) < 2:
+        # ルート最適化する地点が2未満の場合はスキップ
+        return items
+
+    try:
+        # ルート最適化リクエストを構築
+        origin = location_items[0]
+        destination = location_items[0]  # 往復（出発地に戻る）
+        waypoints = location_items[1:]
+
+        request = OptimizeRouteRequest(
+            origin=Location(
+                name=origin.get("name", "出発地"),
+                lat=float(origin["lat"]),
+                lng=float(origin["lng"]),
+            ),
+            waypoints=[
+                Location(
+                    name=wp.get("name", f"地点{i}"),
+                    lat=float(wp["lat"]),
+                    lng=float(wp["lng"]),
+                )
+                for i, wp in enumerate(waypoints, 1)
+            ],
+            destination=Location(
+                name=destination.get("name", "出発地"),
+                lat=float(destination["lat"]),
+                lng=float(destination["lng"]),
+            ),
+        )
+
+        # ルート最適化を実行
+        response = route_optimizer.optimize_route(request)
+
+        # 最適化されたWaypoint 名から元のアイテムへマッピング
+        optimized_names = {wp.name: wp for wp in response.optimized_order}
+        optimized_items = []
+
+        # origin は最初に
+        optimized_items.append(origin)
+
+        # 最適化された順序でアイテムを追加
+        for wp_name in [wp.name for wp in response.optimized_order]:
+            for item in waypoints:
+                if item.get("name") == wp_name:
+                    optimized_items.append(item)
+                    break
+
+        # move カテゴリと座標がないアイテムは最後に
+        optimized_items.extend(move_items)
+        optimized_items.extend(non_location_items)
+
+        return optimized_items
+    except Exception as e:
+        # ルート最適化失敗時は元の順序を返す
+        print(f"Route optimization failed: {e}")
+        return items
+
+
 async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> dict:
     # タイトル・日ラベルにも誤った曜日が混入するため本文と同じ除去を通す
     title = _clean_response_text(str(args.get("title") or "プラン")).strip()
@@ -626,6 +701,10 @@ async def _run_create_itinerary(args: Dict[str, Any], state: Dict[str, Any]) -> 
             items_out.append(out)
 
         if items_out:
+            # mode=travel の場合、ルート最適化を実行（移動手段を考慮した効率的な巡回順序）
+            if mode == "travel":
+                items_out = _optimize_itinerary_order(items_out)
+
             label = _clean_response_text(str(day.get("label") or "")).strip()
             days_out.append({"label": label, "items": items_out})
 
