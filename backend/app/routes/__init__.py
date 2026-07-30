@@ -1,1 +1,1 @@
-from app.routes import chat, places, hotels
+from app.routes import chat, places, hotels, route
