@@ -14,6 +14,7 @@ from vertexai.generative_models import (
     GenerativeModel,
     Part,
     Tool,
+    ToolConfig,
 )
 
 from app.config import settings
@@ -251,6 +252,39 @@ def _init_vertex_ai():
 def _get_model():
     _init_vertex_ai()
     return _model
+
+
+_forcing_models: Dict[tuple, "GenerativeModel"] = {}
+
+
+def _get_forcing_model(allowed_function_names: tuple) -> "GenerativeModel":
+    """指定した関数のいずれかを必ず呼ばせる GenerativeModel を返す（キャッシュ付き）。
+
+    ChatSession.send_message_async は tool_config をメッセージ単位で
+    上書きできず、GenerativeModel の生成時にしか設定できない。そのため
+    プロンプトでの念押しだけでは flash-lite がツール呼び出し自体を無視する
+    ケース向けに、最初の1往復だけこの強制モデルを使う別インスタンスを用意する
+    （通常会話全体をこのモデルで進めると、最終的な要約テキストすら別の関数
+    呼び出しを強制されてしまい完了できなくなるため、呼び出し側で1往復後に
+    通常モデルへ戻す）。
+    """
+    _init_vertex_ai()
+    cached = _forcing_models.get(allowed_function_names)
+    if cached:
+        return cached
+    forcing_model = GenerativeModel(
+        "gemini-2.5-flash-lite",
+        tools=[_TRAVEL_TOOL],
+        system_instruction=_system_instruction(),
+        tool_config=ToolConfig(
+            function_calling_config=ToolConfig.FunctionCallingConfig(
+                mode=ToolConfig.FunctionCallingConfig.Mode.ANY,
+                allowed_function_names=list(allowed_function_names),
+            )
+        ),
+    )
+    _forcing_models[allowed_function_names] = forcing_model
+    return forcing_model
 
 
 def _build_history(conversation_history: Optional[List[Dict[str, str]]]) -> List[Content]:
@@ -975,7 +1009,14 @@ async def chat_with_gemini(
     # 最初の attempt で create_itinerary が成功しても、次の attempt がある場合は
     # その itinerary を継承する必要がある
     preserved_itinerary: Optional[Dict[str, Any]] = None
+    # 直前の attempt が「ツールを一切呼ばない」失敗だった場合、次の attempt の
+    # 最初の1往復だけ ToolConfig(mode=ANY) でここに列挙した関数のいずれかを
+    # 必ず呼ばせる。プロンプトでの念押しのみでは不十分だったため（実際に
+    # 3回連続でツール未呼び出しのまま終わる本番失敗を確認済み）。
+    forced_tool_names: Optional[List[str]] = None
     for _attempt in range(_max_attempts):
+        use_forced_tool_names = forced_tool_names
+        forced_tool_names = None
         state: Dict[str, Any] = {
             "hotels": [],
             "search_context": None,
@@ -1008,8 +1049,24 @@ async def chat_with_gemini(
                 )
             attempt_message = f"{message}\n（重要: {'。'.join(notes)}）"
         try:
-            chat = model.start_chat(history=_build_history(conversation_history))
-            response = await chat.send_message_async(attempt_message)
+            if use_forced_tool_names:
+                # 最初の1往復だけ ToolConfig(mode=ANY) の強制モデルで送り、
+                # 対象ツールのいずれかを必ず呼ばせる。
+                forcing_chat = _get_forcing_model(tuple(use_forced_tool_names)).start_chat(
+                    history=_build_history(conversation_history)
+                )
+                response = await forcing_chat.send_message_async(attempt_message)
+                print(
+                    f"[DEBUG] chat_with_gemini attempt {_attempt}: forced tool call "
+                    f"({use_forced_tool_names}) -> {[c.name for c in _extract_function_calls(response)]}"
+                )
+                # 強制はこの1往復のみ。以降まで強制モードを引きずると、最終的な
+                # 要約テキストすら別の関数呼び出しを強制されて完了できなくなる
+                # ため、ここで通常(AUTO)モードのモデルに履歴を引き継いで戻す。
+                chat = model.start_chat(history=forcing_chat.history)
+            else:
+                chat = model.start_chat(history=_build_history(conversation_history))
+                response = await chat.send_message_async(attempt_message)
 
             for tool_turn in range(_MAX_TOOL_TURNS):
                 calls = _extract_function_calls(response)
@@ -1056,6 +1113,9 @@ async def chat_with_gemini(
             ):
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
                 preserved_itinerary = state.get("itinerary")
+                # 次の attempt は会話履歴なしでやり直すため、前 attempt で
+                # 何が欠けていたかによらず search_spots_nearby から強制する。
+                forced_tool_names = ["search_spots_nearby"]
                 continue
 
             # 上記以外（通常の宿泊プラン等）でも、create_itinerary が呼ばれずに
@@ -1084,6 +1144,10 @@ async def chat_with_gemini(
                     else "行き先・宿泊日・人数が揃っているのにツールが一切呼ばれませんでした"
                 )
                 preserved_itinerary = state.get("itinerary")
+                # (a)(b) いずれも次の attempt は会話履歴なしでやり直すため、
+                # まず検索ツールから強制する（create_itinerary はまだ検索
+                # 結果が無く呼べないため対象に含めない）。
+                forced_tool_names = ["search_hotels", "search_tourist_spots"]
                 continue
 
             # 移動手段（電車・バス・飛行機）指定なのに乗車の行程（move）が
