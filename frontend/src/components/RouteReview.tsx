@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as React from "react";
 import { Itinerary } from "@/lib/api";
 
 interface Review {
@@ -19,12 +20,32 @@ export function RouteReview({ planId, itinerary }: RouteReviewProps) {
   const [comment, setComment] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Load existing reviews on mount
+  React.useEffect(() => {
+    if (planId) {
+      try {
+        const key = `route-reviews-${planId}`;
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setReviews(parsed);
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to load reviews:", error);
+      }
+    }
+  }, [planId]);
 
   const handleSubmit = () => {
     if (rating === 0) {
-      alert("評価を選択してください");
+      setValidationError("評価を選択してください");
       return;
     }
+    setValidationError(null);
 
     const review: Review = {
       rating,
@@ -61,7 +82,10 @@ export function RouteReview({ planId, itinerary }: RouteReviewProps) {
             {[1, 2, 3, 4, 5].map((star) => (
               <button
                 key={star}
-                onClick={() => setRating(star)}
+                onClick={() => {
+                  setRating(star);
+                  setValidationError(null);
+                }}
                 className={`text-2xl transition ${
                   rating >= star ? "text-yellow-400" : "text-gray-300"
                 }`}
@@ -70,6 +94,9 @@ export function RouteReview({ planId, itinerary }: RouteReviewProps) {
               </button>
             ))}
           </div>
+          {validationError && (
+            <p className="text-xs text-red-600 mt-2">{validationError}</p>
+          )}
         </div>
 
         <div>

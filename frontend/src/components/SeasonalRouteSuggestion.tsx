@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { JSX } from "react";
 
 interface SeasonalRouteSuggestionProps {
   latitude?: number;
@@ -38,10 +39,7 @@ function getCurrentSeason(): string {
   return "winter";
 }
 
-export function SeasonalRouteSuggestion({
-  latitude,
-  longitude,
-}: SeasonalRouteSuggestionProps) {
+export function SeasonalRouteSuggestion(): JSX.Element {
   const season = useMemo(() => getCurrentSeason(), []);
   const seasonalInfo = SEASONAL_SPOTS[season];
 
@@ -69,10 +67,6 @@ export function SeasonalRouteSuggestion({
           </span>
         ))}
       </div>
-
-      <button className="w-full text-xs bg-purple-500 hover:bg-purple-600 text-white py-2 rounded font-medium transition">
-        {seasonalInfo.description}のルートを探す
-      </button>
     </div>
   );
 }

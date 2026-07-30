@@ -32,6 +32,15 @@ export function RoutePopularity({ itinerary, planId }: RoutePopularityProps) {
         const stored = localStorage.getItem(key);
         if (stored) {
           setStats(JSON.parse(stored));
+        } else {
+          // Initialize with default stats if none exist yet
+          setStats({
+            planId,
+            shareCount: 0,
+            viewCount: 0,
+            reviewCount: 0,
+            avgRating: 0,
+          });
         }
       } catch (error) {
         console.warn("Stats fetch failed:", error);
@@ -43,20 +52,29 @@ export function RoutePopularity({ itinerary, planId }: RoutePopularityProps) {
     fetchStats();
   }, [planId]);
 
-  if (!stats) {
+  if (loading || !stats) {
+    return null;
+  }
+
+  // Only show if there's meaningful data
+  if (stats.viewCount === 0 && stats.shareCount === 0 && stats.reviewCount === 0) {
     return null;
   }
 
   return (
     <div className="flex gap-4 text-xs text-gray-600 bg-blue-50 p-3 rounded-lg">
-      <div className="flex items-center gap-1">
-        <span>👁️</span>
-        <span>{stats.viewCount}人が確認</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span>🔗</span>
-        <span>{stats.shareCount}回シェア</span>
-      </div>
+      {stats.viewCount > 0 && (
+        <div className="flex items-center gap-1">
+          <span>👁️</span>
+          <span>{stats.viewCount}人が確認</span>
+        </div>
+      )}
+      {stats.shareCount > 0 && (
+        <div className="flex items-center gap-1">
+          <span>🔗</span>
+          <span>{stats.shareCount}回シェア</span>
+        </div>
+      )}
       {stats.reviewCount > 0 && (
         <div className="flex items-center gap-1">
           <span>⭐</span>

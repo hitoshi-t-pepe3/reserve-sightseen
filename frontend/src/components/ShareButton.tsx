@@ -11,11 +11,13 @@ interface ShareButtonProps {
 export function ShareButton({ itinerary, planId }: ShareButtonProps) {
   const [copied, setCopied] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ルート情報を Base64 エンコードして URL 化
   const generateShareUrl = async () => {
     try {
       setSharing(true);
+      setError(null);
 
       // ルート情報を JSON 化
       const routeData = {
@@ -34,14 +36,27 @@ export function ShareButton({ itinerary, planId }: ShareButtonProps) {
       const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
       const shareUrl = `${baseUrl}/routes/${encoded}`;
 
-      // クリップボードにコピー
-      await navigator.clipboard.writeText(shareUrl);
+      // クリップボードにコピー（フォールバック付き）
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+      } catch {
+        // フォールバック: 従来の方法で text area に貼り付け
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
 
       return shareUrl;
     } catch (error) {
       console.error("Share URL generation failed:", error);
+      setError("シェア URL の生成に失敗しました。もう一度お試しください。");
+      setTimeout(() => setError(null), 3000);
     } finally {
       setSharing(false);
     }
