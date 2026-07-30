@@ -869,8 +869,13 @@ async def _execute_tool(name: str, args: Dict[str, Any], state: Dict[str, Any]) 
     state["tool_called"] = True
     print(f"[DEBUG] _execute_tool: calling {name}")
     if name == "search_hotels":
+        # search_hotels はシステムプロンプト上「行き先・宿泊日・人数が揃ったら」
+        # しか呼ばれない想定なので、これが呼ばれたのに create_itinerary が
+        # 呼ばれず終わるのは（散歩/ドライブの nearby_mode と同様）異常系として扱う。
+        state["searched_for_plan"] = True
         return await _run_search_hotels(args, state)
     if name == "search_tourist_spots":
+        state["searched_for_plan"] = True
         return await _run_search_spots(args)
     if name == "search_spots_nearby":
         return await _run_search_nearby(args)
@@ -958,6 +963,7 @@ async def chat_with_gemini(
             "search_context": None,
             "itinerary": preserved_itinerary,  # 前の attempt の itinerary を引き継ぐ
             "tool_called": False,
+            "searched_for_plan": False,
             "user_location": user_location,
         }
         attempt_message = message
@@ -1020,6 +1026,19 @@ async def chat_with_gemini(
                 and not state["itinerary"]
             ):
                 last_error = Exception("散歩/ドライブモードで日程表が生成されませんでした")
+                preserved_itinerary = state.get("itinerary")
+                continue
+
+            # 上記以外（通常の宿泊プラン等）でも、search_hotels/search_tourist_spots が
+            # 呼ばれた（=行き先・日程・人数が揃い検索まで進んだ）のに create_itinerary が
+            # 呼ばれずに終わるのは flash-lite の頻出失敗。nearby_mode 同様やり直す。
+            if (
+                not is_last_attempt
+                and not nearby_mode
+                and state.get("searched_for_plan")
+                and not state["itinerary"]
+            ):
+                last_error = Exception("検索は行われましたが日程表が生成されませんでした")
                 preserved_itinerary = state.get("itinerary")
                 continue
 
