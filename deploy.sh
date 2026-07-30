@@ -141,7 +141,7 @@ except Exception as e:
   # 6. アフィリエイトURL生成テスト: buildReserveUrl の出力が 400 bad request になっていないか
   log "Testing: Affiliate URL validity..."
   curl -fsS --max-time 30 "$backend_url/api/hotels/search-area?area=%E4%BA%AC%E9%83%BD&hits=1" \
-    | python3 << 'PYTHON_EOF'
+    | python3 << 'PYTHON_EOF' || warn "URL テストで問題が検出されました"
 import json, sys, subprocess
 try:
   d = json.load(sys.stdin)
@@ -167,23 +167,26 @@ try:
   else:
     test_url += "?f_nen1=2024&f_tuki1=8&f_hi1=1&f_nen2=2024&f_tuki2=8&f_hi2=3&f_otona_su=2&f_heya_su=1"
 
-  # curl で HEAD リクエストして HTTP ステータスをチェック
+  # リダイレクトを追った最終的な HTTP ステータスコードだけを取得する。
+  # -I (HEAD) のヘッダ全文から部分一致で判定すると Content-Length 等に
+  # 引っかかって誤検知するため、%{http_code} で数値だけを受け取る。
   result = subprocess.run(
-    ["curl", "-sS", "-I", "-L", "-m", "10", test_url],
+    ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "-L", "-m", "10", test_url],
     capture_output=True, text=True, timeout=15
   )
+  status = result.stdout.strip()
 
-  # 400 Bad Request がないか、503+ のサーバーエラーがないか
-  if "400" in result.stdout or "400" in result.stderr:
-    print(f"警告: URL が 400 bad request を返しています: {test_url[:100]}")
-  elif "5" in result.stdout[:3]:  # HTTP/1.1 5xx
-    print(f"警告: URL が 5xx エラーを返しています")
+  if status == "400":
+    sys.exit(f"警告: URL が 400 bad request を返しています: {test_url[:100]}")
+  elif status.startswith("4"):
+    sys.exit(f"警告: URL が {status} を返しています: {test_url[:100]}")
+  elif status.startswith("5"):
+    sys.exit(f"警告: URL が {status} (サーバーエラー) を返しています")
   else:
-    print(f"OK: affiliate URL が有効 (リダイレクト先到達可能)")
+    print(f"OK: affiliate URL が有効 (HTTP {status})")
 except Exception as e:
   print(f"OK: URL テストをスキップ ({e})")
 PYTHON_EOF
-  || warn "URL テストで問題が検出されました"
 
   log "=== Smoke Test 全件成功 ==="
 }
