@@ -22,6 +22,27 @@ plan_chat_storage: dict = {}  # {plan_id: ChatChannel}
 chat_members_storage: dict = {}  # {channel_id: [ChatMember, ...]}
 
 
+def _get_or_create_chat_channel(plan_id: str) -> ChatChannel:
+    """プランのチャットチャンネルを取得。未登録なら自動作成する。
+
+    /api/route/share-with-chat（他人を招待する共有フロー）を経由していない
+    プラン（保存済みプラン一覧から直接開いた自分だけのチャットなど）でも
+    必ずチャットを使えるようにするため、遅延作成する。
+    """
+    if plan_id not in plan_chat_storage:
+        channel_id = route_sharing_manager.generate_chat_channel_id(plan_id)
+        plan_chat_storage[plan_id] = ChatChannel(
+            channel_id=channel_id,
+            plan_id=plan_id,
+            title="無題のプラン",
+            created_at=datetime.utcnow(),
+            member_count=0,
+            is_active=True,
+        )
+        chat_members_storage[channel_id] = []
+    return plan_chat_storage[plan_id]
+
+
 @router.post("/route/optimize", response_model=OptimizeRouteResponse, tags=["route"])
 async def optimize_route(request: OptimizeRouteRequest) -> OptimizeRouteResponse:
     """
@@ -134,17 +155,21 @@ async def share_with_chat(route_data: dict) -> dict:
         plan_id = shared_plan["planId"]
         channel_id = shared_plan["chatChannelId"]
 
-        # チャンネルメタデータを保存
+        # channel_id は plan_id から決定的に導出されるため、保存プラン一覧から
+        # 直接チャットを開いて既にメッセージ・メンバーが存在する場合がある。
+        # ここで無条件に上書きすると、それらを消してしまうため、既存があれば
+        # タイトルだけ更新し、メンバー・メッセージ履歴は保持する。
+        existing = plan_chat_storage.get(plan_id)
         plan_chat_storage[plan_id] = ChatChannel(
             channel_id=channel_id,
             plan_id=plan_id,
-            title=route_data.get("title", "無題のプラン"),
-            description=route_data.get("description"),
-            created_at=datetime.utcnow(),
-            member_count=0,
+            title=route_data.get("title") or (existing.title if existing else "無題のプラン"),
+            description=route_data.get("description") or (existing.description if existing else None),
+            created_at=existing.created_at if existing else datetime.utcnow(),
+            member_count=len(chat_members_storage.get(channel_id, [])),
             is_active=True,
         )
-        chat_members_storage[channel_id] = []
+        chat_members_storage.setdefault(channel_id, [])
 
         return shared_plan
     except Exception as e:
@@ -167,10 +192,7 @@ async def get_chat_members(plan_id: str) -> dict:
     - members: メンバー情報リスト（最初の5人）
     """
     try:
-        if plan_id not in plan_chat_storage:
-            raise HTTPException(status_code=404, detail="Plan not found")
-
-        channel = plan_chat_storage[plan_id]
+        channel = _get_or_create_chat_channel(plan_id)
         members = chat_members_storage.get(channel.channel_id, [])[:5]
 
         return {
@@ -210,10 +232,7 @@ async def log_chat_message(plan_id: str, message_data: dict) -> dict:
     - message_id: メッセージ ID
     """
     try:
-        if plan_id not in plan_chat_storage:
-            raise HTTPException(status_code=404, detail="Plan not found")
-
-        channel = plan_chat_storage[plan_id]
+        channel = _get_or_create_chat_channel(plan_id)
 
         # メッセージをイベント化
         event = PlanChatEvent(
