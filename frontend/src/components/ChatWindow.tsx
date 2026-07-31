@@ -76,6 +76,10 @@ export function ChatWindow() {
   // ずれたとき、Bitchat 側の表示に合わせるために使う
   // （日程表の地点の「💬」チャットは ItineraryTimeline 内にインライン表示される）
   const [chatGhOverride, setChatGhOverride] = useState<string | null>(null);
+  // ヘッダーの各種パネルボタンをまとめたモバイル用メニューの開閉
+  // （画面幅が狭いと6個のボタンが横に収まらず右にはみ出るため、
+  // sm 未満ではハンバーガーメニューに畳む）
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -282,7 +286,9 @@ export function ChatWindow() {
             <p className="text-xs text-gray-500">AI 旅行プランナー</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        {/* sm以上: 従来通り横並び。sm未満(スマホ)は6個並べると画面右にはみ出るため
+            ハンバーガーメニューに畳む */}
+        <div className="hidden sm:flex gap-2">
           <button
             onClick={toggleNearbyChat}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -325,6 +331,82 @@ export function ChatWindow() {
           >
             🏨 宿泊検索
           </button>
+        </div>
+
+        {/* sm未満(スマホ): ハンバーガーメニュー */}
+        <div className="sm:hidden relative">
+          <button
+            onClick={() => setShowHeaderMenu((v) => !v)}
+            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-700"
+            aria-label="メニュー"
+            aria-expanded={showHeaderMenu}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          {showHeaderMenu && (
+            <>
+              {/* メニュー外タップで閉じる */}
+              <div className="fixed inset-0 z-10" onClick={() => setShowHeaderMenu(false)} />
+              <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                <button
+                  onClick={() => {
+                    toggleNearbyChat();
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  📡 周辺チャット {nearbyChatOn ? "ON" : "OFF"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowFavorites(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  ❤️ お気に入り
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSearchHistory(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  🔍 検索履歴
+                </button>
+                <button
+                  onClick={() => {
+                    setShowFavoriteSpots(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  📌 スポット
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSavedPlans(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  📚 保存プラン
+                </button>
+                <button
+                  onClick={() => {
+                    setShowHotelSearch(true);
+                    setShowHeaderMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  🏨 宿泊検索
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
