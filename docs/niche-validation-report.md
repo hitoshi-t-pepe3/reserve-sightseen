@@ -7,7 +7,7 @@
 
 | 調査 | 内容 | 状態 |
 |---|---|---|
-| **調査A** | 楽天商品検索APIによる実データ計測 | ⏳ **未実行**（`backend/.env` がコンテナに無く `RAKUTEN_APPLICATION_ID` を取得できないため） |
+| **調査A** | 楽天商品検索APIによる実データ計測 | ⏳ **未実行**（下記「調査Aが未実行の理由」参照。ローカル環境での実行が必要） |
 | **調査B** | 競合のツール化状況 | ✅ **完了**（本レポートの中核） |
 | **調査C** | 検索ボリューム | ⏳ 未実行（キーワードプランナー等が必要。APIでは取得不可） |
 
@@ -110,20 +110,44 @@
 
 ---
 
-## 次のアクション
+## 調査Aが未実行の理由：このリモート環境からは `openapi.rakuten.co.jp` に到達できない
 
-1. **`RAKUTEN_APPLICATION_ID` を用意する**（`backend/.env` に置くか、環境変数で渡す）
-   ```bash
-   RAKUTEN_APPLICATION_ID=... python3 scripts/niche_research.py
-   ```
-   所要 約40秒（31リクエスト × 1.3秒スロットリング）
-2. 実測結果をこのレポートに追記し、投入順序を確定する
-3. 調査C（検索ボリューム）をキーワードプランナー等で取得
+`RAKUTEN_APPLICATION_ID` / `RAKUTEN_AFFILIATE_ID` は入手済み・`backend/.env` に設定済み（`.gitignore` 対象、コミットはされていない）。**しかし Claude Code on the web のこのリモート実行環境は、組織のネットワークポリシーにより `openapi.rakuten.co.jp` へのアウトバウンド通信をブロックしている。**
+
+```
+gateway answered 403 to CONNECT (policy denial or upstream failure)
+host: openapi.rakuten.co.jp:443
+```
+
+これはAPIキーの誤りでもスクリプトの不具合でもなく、**環境のegressポリシーによるもの**。本番の Cloud Run（`backend/app/tools/rakuten_travel.py` が同じホストを叩く構成）では通っているはずだが、この開発用リモート環境では通らない。
+
+**対応: ローカル環境（またはegress制限のないCI）で実行する。**
+
+### 実行手順
+
+```bash
+# 1. このブランチを pull（scripts/niche_research.py は Phase 0 で追加済み）
+git pull origin claude/affiliate-site-strategy-kl85k3
+
+# 2. 依存関係
+pip install httpx
+
+# 3. backend/.env に RAKUTEN_APPLICATION_ID を設定 済み変数を渡す
+RAKUTEN_APPLICATION_ID=... python3 scripts/niche_research.py
+```
+
+所要 約40秒（31リクエスト × 1.3秒スロットリング）。完了したら `docs/niche-research-raw.json` の生データと、標準出力に出る Markdown 表をこのセッションに貼っていただければ、レポートへの反映と投入順序の確定を行う。
 
 ### 調査A 実行時の注意
 
 - 楽天は 1 applicationId につき **1秒1リクエスト**。スクリプトは 1.3 秒間隔で待つ。429 が出たら `THROTTLE_SECONDS` を上げる
 - 旧ドメイン `app.rakuten.co.jp` は 2026/5/14 に停止済み。スクリプトは新ドメインの `IchibaItem/Search/20260401` を叩く。**404 が返る場合は楽天のバージョン改定を確認し、`RAKUTEN_ITEM_SEARCH_URL` 環境変数で上書きする**
+
+## 次のアクション
+
+1. **調査Aをローカル環境で実行**（上記手順）→ 結果をこのセッションに共有
+2. 実測結果をこのレポートに追記し、投入順序を確定する
+3. 調査C（検索ボリューム）をキーワードプランナー等で取得
 
 ---
 
