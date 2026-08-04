@@ -1,0 +1,47 @@
+name: GA4 Weekly Report
+
+on:
+  schedule:
+    # 毎週月曜 09:00 JST (00:00 UTC)
+    - cron: "0 0 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_GA4_REPORTER_SA }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r backend/scripts/ga4-report/requirements.txt
+
+      - name: Run GA4 report
+        id: report
+        env:
+          GA4_PROPERTY_ID: ${{ vars.GA4_PROPERTY_ID }}
+        run: |
+          python backend/scripts/ga4-report/report.py | tee ga4-report.md
+
+      - name: Post report as GitHub Issue
+        run: |
+          gh issue create \
+            --title "週次アクセスレポート $(date +'%Y-%m-%d')" \
+            --label "ga4-report" \
+            --body-file ga4-report.md
+        env:
+          GH_TOKEN: ${{ github.token }}

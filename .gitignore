@@ -23,3 +23,7 @@ out/
 # Local env files (secrets)
 backend/env-vars.yaml
 env-vars.yaml
+
+# Service account keys (secrets)
+*service-account*.json
+backend/scripts/ga4-report/credentials/
