@@ -13,6 +13,7 @@ GA4 週次アクセスレポート。
 import os
 import sys
 
+from google.api_core.exceptions import InvalidArgument
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from google.analytics.data_v1beta.types import (
     DateRange,
@@ -136,7 +137,17 @@ def fetch_affiliate_clicks(client: BetaAnalyticsDataClient) -> str:
             OrderBy(metric=OrderBy.MetricOrderBy(metric_name="eventCount"), desc=True)
         ],
     )
-    response = client.run_report(request)
+    try:
+        response = client.run_report(request)
+    except InvalidArgument:
+        # customEvent:affiliate はGA4側でカスタムディメンションとして
+        # 登録されるまで存在しない扱いになり、クエリ自体が400で落ちる。
+        return (
+            "## アフィリエイトクリック(直近7日間)\n"
+            "- 遷移先別の内訳は未取得(GA4管理画面でカスタムディメンション"
+            "`affiliate`(イベントスコープ)を登録してください。"
+            "登録後もデータ反映まで最大24〜48時間かかります)"
+        )
 
     if not response.rows:
         return (

@@ -35,6 +35,7 @@ jobs:
         env:
           GA4_PROPERTY_ID: ${{ vars.GA4_PROPERTY_ID }}
         run: |
+          set -euo pipefail
           python backend/scripts/ga4-report/report.py | tee ga4-report.md
 
       - name: Post report as GitHub Issue
