@@ -124,7 +124,7 @@ def fetch_affiliate_clicks(client: BetaAnalyticsDataClient) -> str:
     request = RunReportRequest(
         property=_property(),
         date_ranges=[DateRange(start_date="7daysAgo", end_date="today")],
-        dimensions=[Dimension(name="eventName")],
+        dimensions=[Dimension(name="customEvent:affiliate")],
         metrics=[Metric(name="eventCount")],
         dimension_filter={
             "filter": {
@@ -132,19 +132,28 @@ def fetch_affiliate_clicks(client: BetaAnalyticsDataClient) -> str:
                 "string_filter": {"value": "affiliate_click"},
             }
         },
+        order_bys=[
+            OrderBy(metric=OrderBy.MetricOrderBy(metric_name="eventCount"), desc=True)
+        ],
     )
     response = client.run_report(request)
 
-    count = "0"
-    if response.rows:
-        count = response.rows[0].metric_values[0].value
+    if not response.rows:
+        return (
+            "## アフィリエイトクリック(直近7日間)\n"
+            "- データなし(GA4のカスタムディメンション`affiliate`登録直後は"
+            "反映まで最大24〜48時間かかる)"
+        )
 
-    return (
-        "## アフィリエイトクリック(直近7日間)\n"
-        f"- affiliate_click イベント数: {count}\n"
-        "  (どのアフィリエイト先かの内訳を見るには GA4 でカスタムディメンション"
-        " `affiliate` の登録が必要)"
-    )
+    lines = ["## アフィリエイトクリック(直近7日間、遷移先別)"]
+    total = 0
+    for row in response.rows:
+        affiliate = row.dimension_values[0].value or "(未設定)"
+        count = int(row.metric_values[0].value)
+        total += count
+        lines.append(f"- {affiliate}: {count}")
+    lines.append(f"- 合計: {total}")
+    return "\n".join(lines)
 
 
 def main() -> None:
